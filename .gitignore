@@ -21,6 +21,11 @@ expo-env.d.ts
 # Metro
 .metro-health-check*
 
+# Jest (cache dir lands in the repo root in this environment instead of the
+# OS tmpdir; ignore it rather than rely on where it happens to be written)
+jest_dx/
+coverage/
+
 # debug
 npm-debug.*
 yarn-debug.*
