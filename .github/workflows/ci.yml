@@ -17,3 +17,6 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm test -- --ci
       - run: npx expo-doctor
+      # Proves Metro (not just Jest's separate moduleNameMapper) still
+      # resolves the "@/" path alias declared in metro.config.js/tsconfig.json.
+      - run: npx expo export --platform ios

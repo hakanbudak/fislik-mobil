@@ -11,9 +11,9 @@ const BACKGROUND: Record<Variant, string> = {
 };
 
 const FOREGROUND: Record<Variant, string> = {
-  primary: "#ffffff",
+  primary: tokens.color.onPrimary,
   secondary: tokens.color.ink,
-  danger: "#ffffff",
+  danger: tokens.color.onPrimary,
 };
 
 export function Button({
