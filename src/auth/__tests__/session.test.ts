@@ -39,3 +39,19 @@ test("clearSession wipes both storage and memory", async () => {
   expect(store.deleteItemAsync).toHaveBeenCalledWith("fislik.access_token");
   expect(currentToken()).toBeNull();
 });
+
+test("saveSession rejects when SecureStore.setItemAsync rejects, and memory is unchanged", async () => {
+  await saveSession("jwt-original");
+  const error = new Error("Storage failed");
+  store.setItemAsync.mockRejectedValueOnce(error);
+  await expect(saveSession("jwt-new")).rejects.toThrow("Storage failed");
+  expect(currentToken()).toBe("jwt-original");
+});
+
+test("clearSession rejects when SecureStore.deleteItemAsync rejects, and memory is unchanged", async () => {
+  await saveSession("jwt-existing");
+  const error = new Error("Storage failed");
+  store.deleteItemAsync.mockRejectedValueOnce(error);
+  await expect(clearSession()).rejects.toThrow("Storage failed");
+  expect(currentToken()).toBe("jwt-existing");
+});

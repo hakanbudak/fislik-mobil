@@ -4,7 +4,9 @@ import { setTokenProvider } from "@/src/api/client";
 const KEY = "fislik.access_token";
 
 /** Mirrored in memory because apiFetch needs the token synchronously on every
- *  request, while SecureStore is async. */
+ *  request, while SecureStore is async. Storage is updated FIRST in saveSession
+ *  and clearSession so that if either rejects, memory stays in sync with disk
+ *  and the error propagates to the caller. */
 let token: string | null = null;
 
 setTokenProvider(() => token);
@@ -19,11 +21,11 @@ export async function loadSession(): Promise<string | null> {
 }
 
 export async function saveSession(value: string): Promise<void> {
-  token = value;
   await SecureStore.setItemAsync(KEY, value);
+  token = value;
 }
 
 export async function clearSession(): Promise<void> {
-  token = null;
   await SecureStore.deleteItemAsync(KEY);
+  token = null;
 }
