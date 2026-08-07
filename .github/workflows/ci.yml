@@ -20,3 +20,9 @@ jobs:
       # Proves Metro (not just Jest's separate moduleNameMapper) still
       # resolves the "@/" path alias declared in metro.config.js/tsconfig.json.
       - run: npx expo export --platform ios
+      - name: Verify generated API types are up to date
+        env:
+          EXPO_PUBLIC_API_URL: https://fislik-api.selamet.dev
+        run: |
+          npm run gen:api
+          git diff --exit-code src/api/generated/schema.d.ts
