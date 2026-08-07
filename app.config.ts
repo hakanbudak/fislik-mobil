@@ -9,7 +9,7 @@ const config: ExpoConfig = {
   userInterfaceStyle: "light",
   ios: { bundleIdentifier: "dev.selamet.fislik", supportsTablet: false },
   android: { package: "dev.selamet.fislik" },
-  plugins: ["expo-router", "expo-font"],
+  plugins: ["expo-router", "expo-font", "expo-secure-store"],
   extra: { apiUrl: process.env.EXPO_PUBLIC_API_URL },
 };
 
