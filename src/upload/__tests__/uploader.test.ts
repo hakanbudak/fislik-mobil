@@ -126,8 +126,35 @@ test("sets the Content-Type header on the presigned PUT", async () => {
 });
 
 test("a failed PUT rejects and leaves the record in place", async () => {
-  mockUpload.mockResolvedValue({ status: 403, body: "", headers: {} });
+  mockUpload.mockResolvedValue({ status: 500, body: "", headers: {} });
   await expect(uploadRecord(record({ receiptId: "r1", uploadUrl: "https://r2/put" }))).rejects.toThrow();
   expect(mockedQueue.removeRecord).not.toHaveBeenCalled();
   expect(mockedEndpoints.completeUpload).not.toHaveBeenCalled();
+});
+
+test("does not remove the record when the final confirmation fails", async () => {
+  mockedEndpoints.completeUpload.mockRejectedValue(new Error("network down"));
+  await expect(
+    uploadRecord(record({ receiptId: "r1", uploadUrl: "https://r2/put" })),
+  ).rejects.toThrow("network down");
+  expect(mockedQueue.removeRecord).not.toHaveBeenCalled();
+});
+
+test("a 403 from the PUT clears receiptId and uploadUrl so the next attempt re-reserves", async () => {
+  mockUpload.mockResolvedValue({ status: 403, body: "", headers: {} });
+  await expect(
+    uploadRecord(record({ receiptId: "r1", uploadUrl: "https://r2/put" })),
+  ).rejects.toThrow();
+  expect(mockedQueue.updateRecord).toHaveBeenCalledWith("q1", {
+    receiptId: undefined,
+    uploadUrl: undefined,
+  });
+});
+
+test("a non-403 failure (500) leaves receiptId and uploadUrl intact", async () => {
+  mockUpload.mockResolvedValue({ status: 500, body: "", headers: {} });
+  await expect(
+    uploadRecord(record({ receiptId: "r1", uploadUrl: "https://r2/put" })),
+  ).rejects.toThrow();
+  expect(mockedQueue.updateRecord).not.toHaveBeenCalled();
 });

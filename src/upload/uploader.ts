@@ -60,6 +60,18 @@ export async function uploadRecord(record: QueueRecord): Promise<ReceiptOut> {
 
   const status = await putBinary(uploadUrl, record.localUri, record.contentType);
   if (status < 200 || status >= 300) {
+    if (status === 403) {
+      // Presigned R2 PUT urls expire; a 403 here means this url (and the
+      // reservation it belongs to) is dead, not that the bytes were bad.
+      // Clear receiptId/uploadUrl so the next attempt re-reserves through
+      // POST /receipts/uploads instead of retrying the same dead url until
+      // MAX_ATTEMPTS with no way out. This is safe to abandon: fislik-api's
+      // daily `delete_stale_uploads` job (fislik-api/app/cleanup.py) removes
+      // receipts left in the "uploading" state, so the orphaned reservation
+      // is garbage-collected server-side and the user never sees a
+      // duplicate receipt.
+      await updateRecord(record.id, { receiptId: undefined, uploadUrl: undefined });
+    }
     throw new Error(`Yükleme başarısız (${status})`);
   }
 

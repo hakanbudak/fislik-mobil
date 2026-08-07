@@ -1,4 +1,4 @@
-import { drainOnce } from "../worker";
+import { drainOnce, startWorker } from "../worker";
 import * as queue from "../queue";
 import * as uploader from "../uploader";
 import type { QueueRecord } from "../queue";
@@ -29,9 +29,15 @@ function record(overrides: Partial<QueueRecord> = {}): QueueRecord {
   };
 }
 
+/** Flushes the microtask queue so chained promises (reset -> drain) settle. */
+function flush(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockedUploader.uploadRecord.mockResolvedValue({ id: "r1", period: "2026-08" } as never);
+  mockedQueue.listQueue.mockResolvedValue([]);
 });
 
 test("marks a record uploading before handing it to the uploader", async () => {
@@ -86,4 +92,22 @@ test("concurrent drains do not double-process a record", async () => {
   mockedQueue.nextPending.mockResolvedValueOnce(record()).mockResolvedValue(null);
   await Promise.all([drainOnce(), drainOnce()]);
   expect(mockedUploader.uploadRecord).toHaveBeenCalledTimes(1);
+});
+
+test("startWorker resets a stranded uploading record to pending without touching attempts, receiptId or uploadUrl", async () => {
+  mockedQueue.listQueue.mockResolvedValue([
+    record({ id: "q1", status: "uploading", attempts: 2, receiptId: "r1", uploadUrl: "https://r2/put" }),
+  ]);
+  mockedQueue.nextPending.mockResolvedValue(null);
+  const stop = startWorker();
+  await flush();
+  await flush();
+  expect(mockedQueue.updateRecord).toHaveBeenCalledWith("q1", { status: "pending" });
+  stop();
+});
+
+test("drainOnce alone (no startWorker) never resets stranded uploads", async () => {
+  mockedQueue.nextPending.mockResolvedValueOnce(record()).mockResolvedValue(null);
+  await drainOnce();
+  expect(mockedQueue.listQueue).not.toHaveBeenCalled();
 });

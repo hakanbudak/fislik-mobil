@@ -1,11 +1,27 @@
 import * as Network from "expo-network";
 import type { ReceiptOut } from "@/src/api/endpoints";
-import { MAX_ATTEMPTS, nextPending, updateRecord } from "./queue";
+import { MAX_ATTEMPTS, listQueue, nextPending, updateRecord } from "./queue";
 import { uploadRecord } from "./uploader";
 
 export type UploadedHandler = (receipt: ReceiptOut, requestedPeriod: string) => void;
 
 let draining = false;
+
+/**
+ * A record left in `"uploading"` means the app was killed or crashed mid-PUT
+ * — `nextPending` never returns it again, so without this it would be lost
+ * silently forever, which is exactly what the queue exists to prevent.
+ * Resetting to `"pending"` is only safe here, at worker start, because
+ * nothing of ours can be mid-upload yet; never call this once draining may
+ * be in progress. `attempts` is left untouched — an interrupted app is not
+ * a failed upload — and `receiptId`/`uploadUrl` are preserved (the patch
+ * only touches `status`) so the retry resumes instead of minting a second
+ * receipt.
+ */
+async function resetStrandedUploads(): Promise<void> {
+  const stranded = (await listQueue()).filter((r) => r.status === "uploading");
+  await Promise.all(stranded.map((r) => updateRecord(r.id, { status: "pending" })));
+}
 
 /** One full pass over the queue. Exported for tests and pull-to-refresh. */
 export async function drainOnce(onUploaded?: UploadedHandler): Promise<void> {
@@ -36,9 +52,11 @@ export async function drainOnce(onUploaded?: UploadedHandler): Promise<void> {
 }
 
 /**
- * Runs the queue for the lifetime of the app. Retries are time-based rather
- * than tight-looped so a persistent failure cannot burn the battery, and a
- * connectivity change triggers an immediate pass.
+ * Runs the queue for the lifetime of the app. Before the first drain, resets
+ * any record stranded in `"uploading"` by a previous kill or crash back to
+ * `"pending"` (see `resetStrandedUploads`). Retries are otherwise time-based
+ * rather than tight-looped so a persistent failure cannot burn the battery,
+ * and a connectivity change triggers an immediate pass.
  */
 export function startWorker(onUploaded?: UploadedHandler): () => void {
   let stopped = false;
@@ -50,7 +68,9 @@ export function startWorker(onUploaded?: UploadedHandler): () => void {
     if (!stopped && state.isConnected) void drainOnce(onUploaded);
   });
 
-  void drainOnce(onUploaded);
+  void resetStrandedUploads().then(() => {
+    if (!stopped) void drainOnce(onUploaded);
+  });
 
   return () => {
     stopped = true;
