@@ -21,6 +21,8 @@
 - **Period format** is `"YYYY-MM"` everywhere, matching the API's `validate_period`.
 - **Max upload size** is 15 MB (`MAX_UPLOAD_BYTES`); compression targets well below it.
 - **Out of scope:** push notifications, non-Turkish locales, dark theme, tablet layouts. Do not add them.
+- **`expo-file-system` API (SDK 57).** The installed version removed the legacy function API from its main entry point — `documentDirectory`, `deleteAsync`, `getInfoAsync`, `copyAsync`, `makeDirectoryAsync` and `uploadAsync` are all gone, replaced by throwing stubs. Any code sample in this plan that calls them predates that change. Use the current API: `Paths.document`, `new File(uri).delete()`, `new File(uri).info` / `.exists`, `File`/`Directory` copy methods, `new Directory(uri).create()`, and `UploadTask`. Task 10 already did. The subpath `expo-file-system/legacy` still exports the old signatures and is an acceptable fallback **only** where the new API cannot express what is needed — if you use it, say so in your report and explain what the new API could not do.
+- **Queue mutations are not atomic.** `src/upload/queue.ts` does read-modify-write over AsyncStorage, so two concurrent callers can lose one another's mutation. Serialize calls into the queue (a promise chain or a small mutex) rather than assuming safety.
 - **Every task ends with a commit.** Commit messages are English and carry no AI attribution or `Co-Authored-By` trailer.
 - **Test command:** `npm test`. Type check: `npx tsc --noEmit`.
 
@@ -1630,7 +1632,6 @@ export function subscribe(listener: () => void): () => void;  // notified after 
 
 ```ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as FileSystem from "expo-file-system";
 import {
   MAX_ATTEMPTS,
   enqueue,
@@ -1653,9 +1654,17 @@ jest.mock("@react-native-async-storage/async-storage", () => {
     },
   };
 });
+// SDK 57 exposes a File class rather than deleteAsync; the mock records which
+// uris were deleted so the removal test can assert on them.
+const deleted: string[] = [];
 jest.mock("expo-file-system", () => ({
-  documentDirectory: "file:///docs/",
-  deleteAsync: jest.fn(async () => undefined),
+  File: class {
+    constructor(public uri: string) {}
+    exists = true;
+    delete() {
+      deleted.push(this.uri);
+    }
+  },
 }));
 
 beforeEach(() => {
@@ -1725,7 +1734,7 @@ test("an accountant upload keeps its clientId", async () => {
 test("removeRecord deletes the local file", async () => {
   const record = await enqueue(input());
   await removeRecord(record.id);
-  expect(FileSystem.deleteAsync).toHaveBeenCalledWith("file:///docs/a.jpg", { idempotent: true });
+  expect(deleted).toContain("file:///docs/a.jpg"); // see the File mock in this file's setup
   await expect(listQueue()).resolves.toHaveLength(0);
 });
 
@@ -1761,7 +1770,7 @@ npx expo install expo-file-system
 
 ```ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as FileSystem from "expo-file-system";
+import { File } from "expo-file-system";
 
 const KEY = "fislik.upload_queue";
 
@@ -1842,7 +1851,12 @@ export async function removeRecord(id: string): Promise<void> {
   const records = await read();
   const record = records.find((r) => r.id === id);
   if (record) {
-    await FileSystem.deleteAsync(record.localUri, { idempotent: true }).catch(() => undefined);
+    try {
+      const file = new File(record.localUri);
+      if (file.exists) file.delete();
+    } catch {
+      // Missing or already-deleted files must not block queue cleanup.
+    }
   }
   await write(records.filter((r) => r.id !== id));
 }
@@ -2028,7 +2042,7 @@ test("a failed PUT rejects and leaves the record in place", async () => {
 `src/upload/uploader.ts`:
 
 ```ts
-import * as FileSystem from "expo-file-system";
+import { File } from "expo-file-system";
 import { completeUpload, createUpload, type ReceiptOut } from "@/src/api/endpoints";
 import { removeRecord, updateRecord, type QueueRecord } from "./queue";
 
@@ -2057,18 +2071,18 @@ export async function uploadRecord(record: QueueRecord): Promise<ReceiptOut> {
     await updateRecord(record.id, { receiptId, uploadUrl });
   }
 
-  const result = await FileSystem.uploadAsync(uploadUrl, record.localUri, {
-    httpMethod: "PUT",
-    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-    headers: { "Content-Type": record.contentType },
-  });
-  if (result.status < 200 || result.status >= 300) {
-    throw new Error(`Yükleme başarısız (${result.status})`);
+  // SDK 57 removed FileSystem.uploadAsync. Do the presigned PUT with whichever
+  // current API actually performs a raw binary upload with a Content-Type
+  // header — see the Global Constraints note. Verify against a real presigned
+  // R2 url before settling on an approach, and report what you used.
+  const status = await putBinary(uploadUrl, record.localUri, record.contentType);
+  if (status < 200 || status >= 300) {
+    throw new Error(`Yükleme başarısız (${status})`);
   }
 
-  const info = await FileSystem.getInfoAsync(record.localUri);
+  const file = new File(record.localUri);
   const receipt = await completeUpload(receiptId, {
-    size_bytes: info.exists && "size" in info ? info.size : undefined,
+    size_bytes: file.exists ? file.size : undefined,
   });
   await removeRecord(record.id);
   return receipt;
@@ -2685,12 +2699,12 @@ npx expo install expo-camera expo-image-manipulator expo-image-picker expo-docum
 `src/upload/capture.ts`:
 
 ```ts
-import * as FileSystem from "expo-file-system";
+import { Directory, File, Paths } from "expo-file-system";
 import * as ImageManipulator from "expo-image-manipulator";
 import { enqueue, type QueueRecord } from "./queue";
 import { drainOnce } from "./worker";
 
-const CAPTURE_DIR = `${FileSystem.documentDirectory}captures/`;
+const CAPTURE_DIR = new Directory(Paths.document, "captures");
 
 /**
  * Resize + JPEG compression keeps a phone photo well under the API's 15 MB
@@ -2706,11 +2720,11 @@ export async function captureToQueue(
     compress: 0.7,
     format: ImageManipulator.SaveFormat.JPEG,
   });
-  await FileSystem.makeDirectoryAsync(CAPTURE_DIR, { intermediates: true }).catch(() => undefined);
+  if (!CAPTURE_DIR.exists) CAPTURE_DIR.create({ intermediates: true });
   // The cache directory can be evicted by the OS at any time; a queued capture
   // has to outlive that, so it moves into the document directory first.
-  const to = `${CAPTURE_DIR}${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
-  await FileSystem.copyAsync({ from: compressed.uri, to });
+  const to = new File(CAPTURE_DIR, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`);
+  new File(compressed.uri).copy(to);
   const record = await enqueue({
     localUri: to,
     contentType: "image/jpeg",
