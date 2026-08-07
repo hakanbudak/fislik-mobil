@@ -1234,7 +1234,9 @@ git commit -m "feat(auth): add login, register and password reset screens"
 
 **Interfaces:**
 - Consumes: `apiFetch` (Task 3), `useAuth().signUp` (Task 5).
-- Produces: `getInviteInfo(token: string): Promise<InviteInfoOut>` where `InviteInfoOut = { invited_email: string; client_name: string }` from the generated schema.
+- Produces: `getInviteInfo(token: string): Promise<InviteInfoOut>` from the generated schema. `InviteInfoOut` carries `invited_email`, `inviter_name`, `inviter_role`, `invited_role` (plus `client_name`, a legacy alias of `inviter_name` — do not use it).
+
+**Invitations run in both directions.** A client can invite an accountant and an accountant can invite a client, so this screen cannot assume the visitor is registering as an accountant. Register with `role: invited_role` and word the explanatory copy from `inviter_role`. Task 18 extends this screen further, for the case where the visitor is already signed in and only needs to accept — build the screen so that addition is a branch, not a rewrite.
 
 - [ ] **Step 1: Add the endpoint**
 
@@ -1506,8 +1508,10 @@ git commit -m "feat(auth): add opt-in biometric unlock"
 - Produces (mirroring `fislik-web/src/lib/*` — read those files and port them, keeping behaviour identical):
   - `formatPeriodLabel(period: string): string` — `"2026-08"` → `"Ağustos 2026"`.
   - `currentPeriod(): string`, `shiftPeriod(period: string, months: number): string`.
-  - `formatMoney(value: string | null): string` — `"1234.5"` → `"1.234,50 ₺"`, `null` → `"—"`.
-  - `formatDateTime(iso: string): string` — `"7 Ağu 2026, 14:30"`.
+  - `formatMoney(value: string | null): string` — `"1234.5"` → `"₺1.234,50"` (symbol PREFIX, matching the web's `formatAmount`), `null` → `"—"`. Implemented manually, not via `Intl`: Hermes may lack full ICU and would silently degrade to `1,234.50` in a way no Node-based test can detect.
+  - `formatReceiptDay(iso): string` — `"12 Ağustos"`; `formatLongDate(iso): string` — `"12 Ağustos 2026"`. Both ported verbatim from the web.
+  - `formatDateTime(iso: string): string` — `formatLongDate` plus `HH:MM`, e.g. `"12 Ağustos 2026, 14:30"`. No web counterpart; exists for notification and issue timestamps.
+  - `MONTHS_TR` lives in `period.ts` and is the single month-name list — `dates.ts` imports it.
   - `isPdf(receipt: { content_type?: string }): boolean` — true only when `content_type === "application/pdf"`; a missing value means image, matching the web app.
 
 - [ ] **Step 1: Read the web originals**
@@ -1541,9 +1545,10 @@ test("current period matches the YYYY-MM shape the API validates", () => {
 ```ts
 import { formatMoney } from "../money";
 
-test("formats decimal strings in Turkish notation", () => {
-  expect(formatMoney("1234.5")).toBe("1.234,50 ₺");
-  expect(formatMoney("0")).toBe("0,00 ₺");
+test("formats decimal strings exactly as the web's Intl formatter does", () => {
+  expect(formatMoney("1234.5")).toBe("₺1.234,50");
+  expect(formatMoney("0")).toBe("₺0,00");
+  expect(formatMoney("1234567.89")).toBe("₺1.234.567,89");
 });
 
 test("renders a dash for missing amounts", () => {
@@ -1581,7 +1586,7 @@ git commit -m "feat(lib): port date, money, period and receipt helpers from the 
 
 ### Task 10: The upload queue
 
-This is the app's most important unit. It owns persistence and ordering only — it performs no network calls, which is what makes it testable.
+The app's most important unit. It owns persistence and ordering only and performs no network calls, which is what makes it testable.
 
 **Files:**
 - Create: `src/upload/queue.ts`
@@ -1597,7 +1602,8 @@ export interface QueueRecord {
   id: string;              // local uuid, not the server receipt id
   localUri: string;        // file:// path in the app's document directory
   contentType: string;     // "image/jpeg" | "application/pdf"
-  period: string;          // "YYYY-MM"
+  period: string;          // "YYYY-MM" the capture was filed under
+  clientId?: string;       // set only when an accountant uploads for a client (Task 24)
   status: QueueStatus;
   attempts: number;
   createdAt: number;       // epoch ms, defines processing order
@@ -1608,13 +1614,15 @@ export interface QueueRecord {
 
 export const MAX_ATTEMPTS = 5;
 
-export function enqueue(input: { localUri: string; contentType: string; period: string }): Promise<QueueRecord>;
+export function enqueue(input: { localUri: string; contentType: string; period: string; clientId?: string }): Promise<QueueRecord>;
 export function listQueue(): Promise<QueueRecord[]>;          // oldest first
 export function updateRecord(id: string, patch: Partial<QueueRecord>): Promise<void>;
 export function removeRecord(id: string): Promise<void>;      // also deletes the local file
-export function nextPending(): Promise<QueueRecord | null>;   // oldest pending, null if none
+export function nextPending(): Promise<QueueRecord | null>;   // oldest pending under MAX_ATTEMPTS
 export function subscribe(listener: () => void): () => void;  // notified after every mutation
 ```
+
+`clientId` is threaded through now, even though only Task 24 sets it, so the accountant upload path does not require reshaping a queue that already holds user data by then.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1655,70 +1663,86 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
-test("enqueued records start pending with no attempts", async () => {
-  const record = await enqueue({
+function input(overrides: Partial<{ localUri: string; contentType: string; period: string }> = {}) {
+  return {
     localUri: "file:///docs/a.jpg",
     contentType: "image/jpeg",
     period: "2026-08",
-  });
+    ...overrides,
+  };
+}
+
+test("enqueued records start pending with no attempts", async () => {
+  const record = await enqueue(input());
   expect(record.status).toBe("pending");
   expect(record.attempts).toBe(0);
   expect(record.receiptId).toBeUndefined();
 });
 
 test("the queue survives a reload from storage", async () => {
-  await enqueue({ localUri: "file:///docs/a.jpg", contentType: "image/jpeg", period: "2026-08" });
+  await enqueue(input());
   jest.resetModules();
   const reloaded = await import("../queue");
   await expect(reloaded.listQueue()).resolves.toHaveLength(1);
 });
 
 test("records are processed oldest first", async () => {
-  const first = await enqueue({ localUri: "file:///docs/1.jpg", contentType: "image/jpeg", period: "2026-08" });
-  await enqueue({ localUri: "file:///docs/2.jpg", contentType: "image/jpeg", period: "2026-08" });
+  const first = await enqueue(input({ localUri: "file:///docs/1.jpg" }));
+  await enqueue(input({ localUri: "file:///docs/2.jpg" }));
   await expect(nextPending()).resolves.toMatchObject({ id: first.id });
 });
 
 test("nextPending skips records already in flight", async () => {
-  const record = await enqueue({ localUri: "file:///docs/1.jpg", contentType: "image/jpeg", period: "2026-08" });
+  const record = await enqueue(input());
   await updateRecord(record.id, { status: "uploading" });
   await expect(nextPending()).resolves.toBeNull();
 });
 
 test("nextPending skips records that exhausted their attempts", async () => {
-  const record = await enqueue({ localUri: "file:///docs/1.jpg", contentType: "image/jpeg", period: "2026-08" });
+  const record = await enqueue(input());
   await updateRecord(record.id, { status: "failed", attempts: MAX_ATTEMPTS });
   await expect(nextPending()).resolves.toBeNull();
 });
 
 test("updateRecord patches without dropping other fields", async () => {
-  const record = await enqueue({ localUri: "file:///docs/1.jpg", contentType: "image/jpeg", period: "2026-08" });
+  const record = await enqueue(input());
   await updateRecord(record.id, { receiptId: "r1", uploadUrl: "https://r2/put" });
   const [stored] = await listQueue();
   expect(stored).toMatchObject({
     receiptId: "r1",
     uploadUrl: "https://r2/put",
-    localUri: "file:///docs/1.jpg",
+    localUri: "file:///docs/a.jpg",
     period: "2026-08",
   });
 });
 
+test("an accountant upload keeps its clientId", async () => {
+  await enqueue({ ...input(), clientId: "c1" });
+  const [stored] = await listQueue();
+  expect(stored.clientId).toBe("c1");
+});
+
 test("removeRecord deletes the local file", async () => {
-  const record = await enqueue({ localUri: "file:///docs/1.jpg", contentType: "image/jpeg", period: "2026-08" });
+  const record = await enqueue(input());
   await removeRecord(record.id);
-  expect(FileSystem.deleteAsync).toHaveBeenCalledWith("file:///docs/1.jpg", { idempotent: true });
+  expect(FileSystem.deleteAsync).toHaveBeenCalledWith("file:///docs/a.jpg", { idempotent: true });
   await expect(listQueue()).resolves.toHaveLength(0);
 });
 
 test("subscribers are notified on every mutation", async () => {
   const listener = jest.fn();
   const unsubscribe = subscribe(listener);
-  const record = await enqueue({ localUri: "file:///docs/1.jpg", contentType: "image/jpeg", period: "2026-08" });
+  const record = await enqueue(input());
   await updateRecord(record.id, { status: "uploading" });
   expect(listener).toHaveBeenCalledTimes(2);
   unsubscribe();
   await removeRecord(record.id);
   expect(listener).toHaveBeenCalledTimes(2);
+});
+
+test("a corrupt stored queue reads as empty rather than throwing", async () => {
+  await AsyncStorage.setItem("fislik.upload_queue", "{not json");
+  await expect(listQueue()).resolves.toEqual([]);
 });
 ```
 
@@ -1728,6 +1752,10 @@ Run: `npm test -- src/upload`
 Expected: FAIL — `../queue` not found.
 
 - [ ] **Step 3: Implement**
+
+```bash
+npx expo install expo-file-system
+```
 
 `src/upload/queue.ts`:
 
@@ -1746,6 +1774,7 @@ export interface QueueRecord {
   localUri: string;
   contentType: string;
   period: string;
+  clientId?: string;
   status: QueueStatus;
   attempts: number;
   createdAt: number;
@@ -1772,8 +1801,8 @@ async function read(): Promise<QueueRecord[]> {
     const parsed = JSON.parse(raw) as QueueRecord[];
     return Array.isArray(parsed) ? parsed : [];
   } catch {
-    // A corrupt queue must not brick the app; the worst case is losing
-    // pending captures, which is strictly better than never launching.
+    // A corrupt queue must not brick the app. Losing pending captures is bad;
+    // never launching is worse.
     return [];
   }
 }
@@ -1791,6 +1820,7 @@ export async function enqueue(input: {
   localUri: string;
   contentType: string;
   period: string;
+  clientId?: string;
 }): Promise<QueueRecord> {
   const record: QueueRecord = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
@@ -1826,16 +1856,13 @@ export async function nextPending(): Promise<QueueRecord | null> {
 - [ ] **Step 4: Run the tests**
 
 Run: `npm test -- src/upload`
-Expected: PASS, 8 tests.
+Expected: PASS, 10 tests.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add -A
-git commit -m "feat(upload): add the persistent capture queue
-
-The queue owns persistence and ordering only and performs no network calls,
-so its retry and resumability behaviour is testable in isolation."
+git commit -m "feat(upload): add the persistent capture queue"
 ```
 
 ---
@@ -1850,10 +1877,13 @@ so its retry and resumability behaviour is testable in isolation."
 **Interfaces:**
 - Consumes: queue functions (Task 10), `apiFetch` (Task 3).
 - Produces:
-  - Endpoints: `createUpload({ content_type, period })` → `UploadOut = { receipt_id, object_key, upload_url }`; `completeUpload(receiptId, { size_bytes })` → `ReceiptOut`.
-  - `uploadRecord(record: QueueRecord): Promise<void>` — runs the three-step handshake, resuming from `receiptId`/`uploadUrl` when they are already set, and removes the record on success.
-  - `startWorker(): () => void` — drains the queue continuously, retries with backoff, re-drains on connectivity restoration; returns a stop function.
-  - `drainOnce(): Promise<void>` — one pass, exported for tests and for pull-to-refresh.
+  - `createUpload({ content_type, period, client_id? })` → `UploadOut = { receipt_id, object_key, upload_url }`
+  - `completeUpload(receiptId, { size_bytes })` → `ReceiptOut`
+  - `uploadRecord(record: QueueRecord): Promise<ReceiptOut>` — three-step handshake, resuming from `receiptId`/`uploadUrl`, removing the record on success, and **returning the completed receipt** so the caller can see which period it actually landed in.
+  - `startWorker(onUploaded?: (receipt: ReceiptOut, requestedPeriod: string) => void): () => void`
+  - `drainOnce(onUploaded?): Promise<void>`
+
+**Locked months — read this before implementing.** The API does NOT reject an upload aimed at a locked month; it auto-files it into the next open month. So `completeUpload` can return a receipt whose `period` differs from the one the capture was queued under. The worker must surface both periods to its caller so the UI can refresh each. Do not add client-side lock checks to the worker — that would duplicate a server rule and drift from it.
 
 - [ ] **Step 1: Add the endpoints**
 
@@ -1861,7 +1891,11 @@ so its retry and resumability behaviour is testable in isolation."
 export type UploadOut = components["schemas"]["UploadOut"];
 export type ReceiptOut = components["schemas"]["ReceiptOut"];
 
-export function createUpload(data: { content_type: string; period?: string }): Promise<UploadOut> {
+export function createUpload(data: {
+  content_type: string;
+  period?: string;
+  client_id?: string;
+}): Promise<UploadOut> {
   return apiFetch<UploadOut>("/receipts/uploads", { method: "POST", body: JSON.stringify(data) });
 }
 
@@ -1872,6 +1906,8 @@ export function completeUpload(receiptId: string, data: { size_bytes?: number })
   });
 }
 ```
+
+Confirm the exact key the API expects for the accountant's on-behalf upload (`client_id` vs something else) by reading `fislik-web/src/lib/upload.ts`, which threads it — the comment in `AccountantMonthPage` says "see `src/lib/upload.ts`'s `clientId` threading". Match the web.
 
 - [ ] **Step 2: Write the failing uploader tests**
 
@@ -1912,6 +1948,7 @@ function record(overrides: Partial<QueueRecord> = {}): QueueRecord {
 beforeEach(() => {
   jest.clearAllMocks();
   fs.uploadAsync.mockResolvedValue({ status: 200 } as never);
+  mockedEndpoints.completeUpload.mockResolvedValue({ id: "r1", period: "2026-08" } as never);
 });
 
 test("runs create, put and complete in order and clears the record", async () => {
@@ -1932,6 +1969,20 @@ test("runs create, put and complete in order and clears the record", async () =>
   );
   expect(mockedEndpoints.completeUpload).toHaveBeenCalledWith("r1", { size_bytes: 2048 });
   expect(mockedQueue.removeRecord).toHaveBeenCalledWith("q1");
+});
+
+test("passes client_id when an accountant uploads on a client's behalf", async () => {
+  mockedEndpoints.createUpload.mockResolvedValue({
+    receipt_id: "r1",
+    object_key: "k",
+    upload_url: "https://r2/put",
+  });
+  await uploadRecord(record({ clientId: "c1" }));
+  expect(mockedEndpoints.createUpload).toHaveBeenCalledWith({
+    content_type: "image/jpeg",
+    period: "2026-08",
+    client_id: "c1",
+  });
 });
 
 test("resumes without re-creating a receipt that already exists", async () => {
@@ -1957,6 +2008,14 @@ test("persists the receipt id before uploading so a crash can resume", async () 
   });
 });
 
+test("returns the completed receipt, which may sit in a different period", async () => {
+  // The API auto-files an upload aimed at a locked month into the next open
+  // one, so the caller has to learn where it actually landed.
+  mockedEndpoints.completeUpload.mockResolvedValue({ id: "r1", period: "2026-09" } as never);
+  const receipt = await uploadRecord(record({ receiptId: "r1", uploadUrl: "https://r2/put" }));
+  expect(receipt.period).toBe("2026-09");
+});
+
 test("a failed PUT rejects and leaves the record in place", async () => {
   fs.uploadAsync.mockResolvedValue({ status: 403 } as never);
   await expect(uploadRecord(record({ receiptId: "r1", uploadUrl: "https://r2/put" }))).rejects.toThrow();
@@ -1964,27 +2023,26 @@ test("a failed PUT rejects and leaves the record in place", async () => {
 });
 ```
 
-- [ ] **Step 3: Run to verify failure**
-
-Run: `npm test -- src/upload/__tests__/uploader.test.ts`
-Expected: FAIL — `../uploader` not found.
-
-- [ ] **Step 4: Implement the uploader**
+- [ ] **Step 3: Implement the uploader**
 
 `src/upload/uploader.ts`:
 
 ```ts
 import * as FileSystem from "expo-file-system";
-import { completeUpload, createUpload } from "@/src/api/endpoints";
+import { completeUpload, createUpload, type ReceiptOut } from "@/src/api/endpoints";
 import { removeRecord, updateRecord, type QueueRecord } from "./queue";
 
 /**
- * Runs the API's three-step upload handshake for one queued capture:
- * reserve a receipt, PUT the bytes straight to R2 with the presigned url,
- * then confirm. Each step persists its result first, so a crash or a kill
- * resumes rather than duplicating a receipt.
+ * Runs the API's three-step upload handshake for one queued capture: reserve a
+ * receipt, PUT the bytes straight to R2 with the presigned url, then confirm.
+ * Each step persists its result first, so a crash or a kill resumes rather
+ * than duplicating a receipt.
+ *
+ * Returns the completed receipt. Its `period` is not necessarily the period
+ * the capture was queued under — the API re-files uploads aimed at a locked
+ * month into the next open one.
  */
-export async function uploadRecord(record: QueueRecord): Promise<void> {
+export async function uploadRecord(record: QueueRecord): Promise<ReceiptOut> {
   let receiptId = record.receiptId;
   let uploadUrl = record.uploadUrl;
 
@@ -1992,6 +2050,7 @@ export async function uploadRecord(record: QueueRecord): Promise<void> {
     const reservation = await createUpload({
       content_type: record.contentType,
       period: record.period,
+      ...(record.clientId ? { client_id: record.clientId } : {}),
     });
     receiptId = reservation.receipt_id;
     uploadUrl = reservation.upload_url;
@@ -2008,14 +2067,15 @@ export async function uploadRecord(record: QueueRecord): Promise<void> {
   }
 
   const info = await FileSystem.getInfoAsync(record.localUri);
-  await completeUpload(receiptId, {
+  const receipt = await completeUpload(receiptId, {
     size_bytes: info.exists && "size" in info ? info.size : undefined,
   });
   await removeRecord(record.id);
+  return receipt;
 }
 ```
 
-- [ ] **Step 5: Write the failing worker tests**
+- [ ] **Step 4: Write the failing worker tests**
 
 `src/upload/__tests__/worker.test.ts`:
 
@@ -2027,6 +2087,7 @@ import type { QueueRecord } from "../queue";
 
 jest.mock("../queue");
 jest.mock("../uploader");
+jest.mock("expo-network", () => ({ addNetworkStateListener: jest.fn(() => ({ remove: jest.fn() })) }));
 
 const mockedQueue = queue as jest.Mocked<typeof queue>;
 const mockedUploader = uploader as jest.Mocked<typeof uploader>;
@@ -2044,13 +2105,24 @@ function record(overrides: Partial<QueueRecord> = {}): QueueRecord {
   };
 }
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockedUploader.uploadRecord.mockResolvedValue({ id: "r1", period: "2026-08" } as never);
+});
 
 test("marks a record uploading before handing it to the uploader", async () => {
   mockedQueue.nextPending.mockResolvedValueOnce(record()).mockResolvedValue(null);
   await drainOnce();
   expect(mockedQueue.updateRecord).toHaveBeenCalledWith("q1", { status: "uploading" });
   expect(mockedUploader.uploadRecord).toHaveBeenCalled();
+});
+
+test("reports the requested and actual periods to its callback", async () => {
+  mockedQueue.nextPending.mockResolvedValueOnce(record({ period: "2026-08" })).mockResolvedValue(null);
+  mockedUploader.uploadRecord.mockResolvedValue({ id: "r1", period: "2026-09" } as never);
+  const onUploaded = jest.fn();
+  await drainOnce(onUploaded);
+  expect(onUploaded).toHaveBeenCalledWith(expect.objectContaining({ period: "2026-09" }), "2026-08");
 });
 
 test("returns a failed record to pending with an incremented attempt count", async () => {
@@ -2085,21 +2157,30 @@ test("drains every pending record in one pass", async () => {
   await drainOnce();
   expect(mockedUploader.uploadRecord).toHaveBeenCalledTimes(2);
 });
+
+test("concurrent drains do not double-process a record", async () => {
+  mockedQueue.nextPending.mockResolvedValueOnce(record()).mockResolvedValue(null);
+  await Promise.all([drainOnce(), drainOnce()]);
+  expect(mockedUploader.uploadRecord).toHaveBeenCalledTimes(1);
+});
 ```
 
-- [ ] **Step 6: Implement the worker**
+- [ ] **Step 5: Implement the worker**
 
 `src/upload/worker.ts`:
 
 ```ts
 import * as Network from "expo-network";
+import type { ReceiptOut } from "@/src/api/endpoints";
 import { MAX_ATTEMPTS, nextPending, updateRecord } from "./queue";
 import { uploadRecord } from "./uploader";
+
+export type UploadedHandler = (receipt: ReceiptOut, requestedPeriod: string) => void;
 
 let draining = false;
 
 /** One full pass over the queue. Exported for tests and pull-to-refresh. */
-export async function drainOnce(): Promise<void> {
+export async function drainOnce(onUploaded?: UploadedHandler): Promise<void> {
   if (draining) return;
   draining = true;
   try {
@@ -2108,7 +2189,8 @@ export async function drainOnce(): Promise<void> {
       if (!record) return;
       await updateRecord(record.id, { status: "uploading" });
       try {
-        await uploadRecord(record);
+        const receipt = await uploadRecord(record);
+        onUploaded?.(receipt, record.period);
       } catch (error) {
         const attempts = record.attempts + 1;
         await updateRecord(record.id, {
@@ -2127,20 +2209,20 @@ export async function drainOnce(): Promise<void> {
 
 /**
  * Runs the queue for the lifetime of the app. Retries are time-based rather
- * than tight-looped so a persistent failure (server down, bad file) cannot
- * burn the battery, and a connectivity change triggers an immediate pass.
+ * than tight-looped so a persistent failure cannot burn the battery, and a
+ * connectivity change triggers an immediate pass.
  */
-export function startWorker(): () => void {
+export function startWorker(onUploaded?: UploadedHandler): () => void {
   let stopped = false;
   const interval = setInterval(() => {
-    if (!stopped) void drainOnce();
+    if (!stopped) void drainOnce(onUploaded);
   }, 15_000);
 
   const subscription = Network.addNetworkStateListener((state) => {
-    if (!stopped && state.isConnected) void drainOnce();
+    if (!stopped && state.isConnected) void drainOnce(onUploaded);
   });
 
-  void drainOnce();
+  void drainOnce(onUploaded);
 
   return () => {
     stopped = true;
@@ -2150,59 +2232,66 @@ export function startWorker(): () => void {
 }
 ```
 
-Install with `npx expo install expo-network expo-file-system`.
+Install with `npx expo install expo-network`.
 
-- [ ] **Step 7: Run the tests**
+- [ ] **Step 6: Run the tests and commit**
 
 Run: `npm test -- src/upload && npx tsc --noEmit`
-Expected: PASS.
-
-- [ ] **Step 8: Commit**
 
 ```bash
 git add -A
 git commit -m "feat(upload): add the resumable uploader and queue worker
 
 Each handshake step persists before acting, so a crash resumes instead of
-creating a duplicate receipt. Failures back off and retry, and give up after
-five attempts so the user can intervene."
+creating a duplicate receipt. The worker reports both the requested and the
+actual period, because the API re-files uploads aimed at a locked month."
 ```
 
 ---
 
-### Task 12: Queue binding and the receipt list
+### Task 12: Receipts endpoints, month state, and the client home screen
 
 **Files:**
 - Create: `src/upload/useUploadQueue.ts`
-- Create: `src/features/receipts/ReceiptCard.tsx`, `src/features/receipts/QueuedReceiptCard.tsx`
+- Create: `src/features/receipts/ReceiptCard.tsx`, `QueuedReceiptCard.tsx`, `MonthSummaryCard.tsx`
 - Create: `src/theme/components/MonthPicker.tsx`
 - Create: `app/(client)/_layout.tsx`, `app/(client)/index.tsx`
-- Modify: `src/api/endpoints.ts` (add `listReceipts`, `receiptsSummary`)
+- Create: `app/(client)/bildirimler.tsx`, `app/(client)/profil.tsx` (placeholders until Task 20)
+- Modify: `src/api/endpoints.ts`, `src/api/queryKeys.ts`
 - Modify: `app/_layout.tsx` (start the worker)
 - Test: `src/upload/__tests__/useUploadQueue.test.tsx`, `app/(client)/__tests__/index.test.tsx`
 
 **Interfaces:**
-- Consumes: queue + worker (Tasks 10–11), `queryKeys` (Task 3), lib helpers (Task 9), theme components (Task 2).
 - Produces:
-  - `useUploadQueue(period: string): { queued: QueueRecord[]; retry: (id: string) => Promise<void>; discard: (id: string) => Promise<void> }` — `queued` is filtered to the given period and re-reads on every queue mutation.
-  - `listReceipts(period)`, `receiptsSummary(period)` endpoints.
-  - `<MonthPicker value={period} onChange={fn} />` — previous/next chevrons around the label from `formatPeriodLabel`, with the next button disabled beyond the current month.
+  - `listReceipts(period)`, `receiptsSummary(period, clientId?)`, `periodLockStatus(period, clientId?)`
+  - `useUploadQueue(period)` → `{ queued, retry, discard }`
+  - `<MonthPicker value onChange />`, `<MonthSummaryCard summary />`, `<ReceiptCard receipt onPress />`, `<QueuedReceiptCard record onRetry onDiscard />`
+  - `queryKeys` gains `submission(period)`, `periodLock(period, clientId?)`, `credits()`
 
-- [ ] **Step 1: Add the endpoints**
+- [ ] **Step 1: Add the endpoints and query keys**
 
 ```ts
 export type SummaryOut = components["schemas"]["SummaryOut"];
+export type PeriodLockOut = components["schemas"]["PeriodLockOut"];
 
 export function listReceipts(period: string): Promise<ReceiptOut[]> {
   return apiFetch<ReceiptOut[]>(`/receipts?period=${encodeURIComponent(period)}`);
 }
 
-export function receiptsSummary(period: string): Promise<SummaryOut> {
-  return apiFetch<SummaryOut>(`/receipts/summary?period=${encodeURIComponent(period)}`);
+export function receiptsSummary(period: string, clientId?: string): Promise<SummaryOut> {
+  const params = new URLSearchParams({ period });
+  if (clientId) params.set("client_id", clientId);
+  return apiFetch<SummaryOut>(`/receipts/summary?${params.toString()}`);
+}
+
+export function periodLockStatus(period: string, clientId?: string): Promise<PeriodLockOut> {
+  const params = new URLSearchParams({ period });
+  if (clientId) params.set("client_id", clientId);
+  return apiFetch<PeriodLockOut>(`/receipts/period-lock?${params.toString()}`);
 }
 ```
 
-Confirm the exact query parameters `receiptsSummary` takes by reading `fislik-web/src/api/endpoints.ts:242` — it builds a `URLSearchParams`; mirror whatever it sends.
+**Lock query must fail soft.** The web treats a 404 from `periodLockStatus` as "not locked" so the screen still works against an API that predates the endpoint. Do the same: `select` the result to a boolean and swallow a 404 into `false`. A hard failure here must never block the receipt list.
 
 - [ ] **Step 2: Write the failing hook test**
 
@@ -2309,6 +2398,14 @@ jest.mock("@/src/upload/useUploadQueue", () => ({
 
 const mocked = endpoints as jest.Mocked<typeof endpoints>;
 
+const summary = {
+  receipt_count: 2,
+  analyzed_count: 2,
+  total_amount: "1234.50",
+  vat_total: "185.18",
+  vat_by_rate: { "20": "185.18" },
+};
+
 function renderScreen() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -2318,16 +2415,19 @@ function renderScreen() {
   );
 }
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  mocked.periodLockStatus.mockResolvedValue({ locked: false, locked_at: null });
+  mocked.getSubmissionState.mockResolvedValue({
+    last_sent_at: null,
+    can_send: true,
+    active_receipt_count: 2,
+    has_accountant: true,
+  });
+});
 
 test("shows the monthly summary and the receipts", async () => {
-  mocked.receiptsSummary.mockResolvedValue({
-    receipt_count: 2,
-    analyzed_count: 2,
-    total_amount: "1234.50",
-    vat_total: "185.18",
-    vat_by_rate: { "20": "185.18" },
-  });
+  mocked.receiptsSummary.mockResolvedValue(summary as never);
   mocked.listReceipts.mockResolvedValue([
     {
       id: "r1",
@@ -2336,74 +2436,192 @@ test("shows the monthly summary and the receipts", async () => {
       image_url: "https://r2/r1.jpg",
       processed: false,
       open_issue: null,
+      uploaded_by: null,
     },
   ] as never);
   renderScreen();
-  await waitFor(() => expect(screen.getByText("1.234,50 ₺")).toBeOnTheScreen());
+  await waitFor(() => expect(screen.getByText("₺1.234,50")).toBeOnTheScreen());
 });
 
 test("shows an empty state when the month has no receipts", async () => {
-  mocked.receiptsSummary.mockResolvedValue({
-    receipt_count: 0,
-    analyzed_count: 0,
-    total_amount: "0",
-    vat_total: "0",
-    vat_by_rate: {},
-  });
+  mocked.receiptsSummary.mockResolvedValue({ ...summary, receipt_count: 0, total_amount: "0" } as never);
+  mocked.listReceipts.mockResolvedValue([]);
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("Bu ay için henüz fiş yok")).toBeOnTheScreen());
+});
+
+test("warns when the month is locked", async () => {
+  mocked.periodLockStatus.mockResolvedValue({ locked: true, locked_at: "2026-09-01T00:00:00Z" });
+  mocked.receiptsSummary.mockResolvedValue(summary as never);
   mocked.listReceipts.mockResolvedValue([]);
   renderScreen();
   await waitFor(() =>
-    expect(screen.getByText("Bu ay için henüz fiş yok")).toBeOnTheScreen(),
+    expect(screen.getByText(/Bu ay muhasebeciniz tarafından kapatıldı/)).toBeOnTheScreen(),
   );
+});
+
+test("treats a 404 from the lock endpoint as not locked", async () => {
+  const { ApiError } = jest.requireActual("@/src/api/client");
+  mocked.periodLockStatus.mockRejectedValue(new ApiError(404, "Not Found"));
+  mocked.receiptsSummary.mockResolvedValue(summary as never);
+  mocked.listReceipts.mockResolvedValue([]);
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("Bu ay için henüz fiş yok")).toBeOnTheScreen());
+  expect(screen.queryByText(/kapatıldı/)).toBeNull();
 });
 ```
 
-- [ ] **Step 5: Implement the client shell and home screen**
+- [ ] **Step 5: Implement the shell and home screen**
 
-`app/(client)/_layout.tsx` uses expo-router `Tabs` with four screens. The `bildirimler` and `profil` screens themselves arrive in Task 15, so create both files now as one-line placeholders rendering `<EmptyState title="Yakında" description="" />` — expo-router warns about tab routes with no matching file, and the placeholders keep the tab bar honest until Task 15 fills them in.
+`app/(client)/_layout.tsx` uses expo-router `Tabs` with four screens — `index` (`Fişler`, `Receipt`), `muhasebecim` (`Muhasebecim`, `Users`), `bildirimler` (`Bildirimler`, `Bell`), `profil` (`Profil`, `User`) — active tint `tokens.color.primary`, inactive `tokens.color.inkSoft`, background `tokens.color.card`, labels in `text.caption`. Create `bildirimler.tsx` and `profil.tsx` now as one-line placeholders rendering `<EmptyState title="Yakında" description="" />`; Task 20 fills them in. `muhasebecim.tsx` arrives in Task 18 — add a placeholder for it too.
 
-The four screens are — `index` (`Fişler`, `Receipt` icon), `muhasebecim` (`Muhasebecim`, `Users`), `bildirimler` (`Bildirimler`, `Bell`), `profil` (`Profil`, `User`) — styled with `tokens.color.primary` active tint, `tokens.color.inkSoft` inactive, `tokens.color.card` background, and `text.caption` labels, mirroring `fislik-web`'s `ClientShell`.
+`app/(client)/index.tsx` holds `period` state from `currentPeriod()` and renders, top to bottom: `<MonthPicker>`, the submission row (Task 13 adds its behaviour — leave a slot), a locked-month notice when the lock query resolves `locked`, `<MonthSummaryCard>`, then a `FlatList` over `[...queued, ...receipts]` — `QueuedReceiptCard` for queue records, `ReceiptCard` for server receipts. A camera FAB pushes `/(client)/kamera`.
 
-`app/(client)/index.tsx` holds `period` state initialised to `currentPeriod()`, renders `<MonthPicker>`, a summary `Card` (`formatMoney(summary.total_amount)`, `KDV` total, receipt count), then a `FlatList` whose data is `[...queued, ...receipts]` — queued records first, rendered by `QueuedReceiptCard`, server receipts by `ReceiptCard`. Loading renders `Spinner`, errors render `ErrorCard` with `errorMessage(error)` and a retry that calls `refetch`, and an empty result renders `EmptyState` with title `Bu ay için henüz fiş yok` and description `Sağ alttaki kamera düğmesiyle ilk fişini ekle.` A floating `Camera` button pushes `/(client)/kamera`.
+Locked-month notice copy: `Bu ay muhasebeciniz tarafından kapatıldı. Yeni yüklemeler bir sonraki aya kaydedilir.` — that is what the API actually does, so say it rather than implying uploads are blocked.
 
-`QueuedReceiptCard` shows the local image thumbnail, a `Badge` reading `Yükleniyor` (tone `neutral`) for `pending`/`uploading`, or `Yüklenemedi` (tone `warning`) with `Tekrar dene` and `Sil` actions for `failed`.
+`MonthSummaryCard` shows `formatMoney(summary.total_amount)`, `KDV` total, receipt count, and — when `summary.payment_method_totals` is present — a per-method breakdown using the `PAYMENT_LABELS` map ported in Task 15.
 
-`ReceiptCard` shows the thumbnail (or a PDF glyph when `isPdf(receipt)`), the merchant name from `receipt.extraction?.merchant_name` (falling back to `formatDateTime(receipt.created_at)`), `formatMoney(receipt.extraction?.total_amount ?? null)`, a `Badge` reading `İşlendi` (tone `success`) when `receipt.processed`, and a `Badge` reading `Sorun var` (tone `warning`) when `receipt.open_issue` is set.
+`ReceiptCard` shows the thumbnail (or a PDF glyph when `isPdf(receipt)`), the merchant name from `receipt.extraction?.merchant_name` falling back to `formatReceiptDay(receipt.created_at)`, `formatMoney(receipt.extraction?.total_amount ?? null)`, and badges: `İşlendi` (success) when `receipt.processed`, `Sorun var` (warning) when `receipt.open_issue`, `Muhasebeci yükledi` (neutral) when `receipt.uploaded_by !== null`, and the analysis state per Task 15's `analysisState` helper.
 
-- [ ] **Step 6: Start the worker at app level**
+`QueuedReceiptCard` shows the local thumbnail with `Yükleniyor` (neutral) for `pending`/`uploading`, or `Yüklenemedi` (warning) with `Tekrar dene` and `Sil` for `failed`.
 
-In `app/_layout.tsx`, inside the authenticated tree: `useEffect(() => startWorker(), [])`. Also invalidate `queryKeys.receipts(period)` when the queue empties, by subscribing in the home screen and calling `queryClient.invalidateQueries` whenever `queued.length` drops.
+- [ ] **Step 6: Start the worker and wire cache invalidation**
 
-- [ ] **Step 7: Run the tests**
+In `app/_layout.tsx`, inside the authenticated tree:
+
+```tsx
+useEffect(
+  () =>
+    startWorker((receipt, requestedPeriod) => {
+      // The receipt may have been re-filed into a different month, so refresh
+      // both the month we aimed at and the one it landed in.
+      for (const p of new Set([requestedPeriod, receipt.period])) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.receipts(p) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.summary(p) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.submission(p) });
+      }
+    }),
+  [queryClient],
+);
+```
+
+- [ ] **Step 7: Run the tests and commit**
 
 Run: `npm test && npx tsc --noEmit`
-Expected: PASS.
-
-- [ ] **Step 8: Commit**
 
 ```bash
 git add -A
-git commit -m "feat(receipts): add the client home screen with queued uploads inline
-
-Queued captures render above server receipts so the user always sees what is
-still in flight, including failures they can retry or discard."
+git commit -m "feat(receipts): add the client home screen with queued uploads inline"
 ```
 
 ---
 
-### Task 13: Burst camera capture and file picking
+### Task 13: Monthly submission to the accountant
 
 **Files:**
-- Create: `app/(client)/kamera.tsx`
-- Create: `src/upload/capture.ts`
+- Create: `src/features/receipts/SubmissionRow.tsx`
+- Modify: `src/api/endpoints.ts`, `app/(client)/index.tsx`
+- Test: `src/features/receipts/__tests__/SubmissionRow.test.tsx`
+
+**Interfaces:**
+- Produces:
+  - `getSubmissionState(period): Promise<SubmissionStateOut>` — `GET /receipts/submission?period=`
+  - `submitReceipts(period): Promise<SubmissionStateOut>` — `POST /receipts/submit` with `{ period }`
+  - `<SubmissionRow state={SubmissionStateOut} onSubmit busy />`
+
+- [ ] **Step 1: Add the endpoints**
+
+```ts
+export type SubmissionStateOut = components["schemas"]["SubmissionStateOut"];
+
+export function getSubmissionState(period: string): Promise<SubmissionStateOut> {
+  return apiFetch<SubmissionStateOut>(
+    `/receipts/submission?period=${encodeURIComponent(period)}`,
+  );
+}
+
+export function submitReceipts(period: string): Promise<SubmissionStateOut> {
+  return apiFetch<SubmissionStateOut>("/receipts/submit", {
+    method: "POST",
+    body: JSON.stringify({ period }),
+  });
+}
+```
+
+- [ ] **Step 2: Write the failing tests**
+
+`src/features/receipts/__tests__/SubmissionRow.test.tsx`:
+
+```tsx
+import { fireEvent, render, screen } from "@testing-library/react-native";
+import { SubmissionRow } from "../SubmissionRow";
+
+const base = {
+  last_sent_at: null,
+  can_send: true,
+  active_receipt_count: 3,
+  has_accountant: true,
+};
+
+test("renders nothing when the client has no accountant", () => {
+  render(<SubmissionRow state={{ ...base, has_accountant: false }} onSubmit={jest.fn()} busy={false} />);
+  expect(screen.queryByText("Muhasebeciye gönder")).toBeNull();
+});
+
+test("submits the month", () => {
+  const onSubmit = jest.fn();
+  render(<SubmissionRow state={base} onSubmit={onSubmit} busy={false} />);
+  fireEvent.press(screen.getByText("Muhasebeciye gönder"));
+  expect(onSubmit).toHaveBeenCalledTimes(1);
+});
+
+test("shows when the month was last sent and disables re-sending", () => {
+  render(
+    <SubmissionRow
+      state={{ ...base, can_send: false, last_sent_at: "2026-08-12T14:30:00Z" }}
+      onSubmit={jest.fn()}
+      busy={false}
+    />,
+  );
+  expect(screen.getByText(/Gönderildi/)).toBeOnTheScreen();
+  expect(screen.getByLabelText("Muhasebeciye gönder")).toBeDisabled();
+});
+
+test("shows a busy label while submitting", () => {
+  render(<SubmissionRow state={base} onSubmit={jest.fn()} busy />);
+  expect(screen.getByText("Gönderiliyor…")).toBeOnTheScreen();
+});
+```
+
+- [ ] **Step 3: Implement**
+
+`SubmissionRow` returns `null` when `!state.has_accountant`. Otherwise it renders, when `last_sent_at` is set and `can_send` is false, a success `Badge` reading `` `✓ Gönderildi: ${formatDateTime(state.last_sent_at)}` ``, and a primary button labelled `Muhasebeciye gönder` (or `Gönderiliyor…` while `busy`), disabled when `!state.can_send || busy`.
+
+Wire it into `app/(client)/index.tsx` with a `useQuery` on `queryKeys.submission(period)` and a `useMutation` calling `submitReceipts(period)`. On success invalidate `queryKeys.submission(period)` and show a confirmation — mobile has no toast component yet, so add a minimal one to `src/theme/components/Toast.tsx` (a timed, absolutely-positioned card) and use it for `Muhasebeciye gönderildi`. Keep it small; later tasks reuse it.
+
+- [ ] **Step 4: Run the tests and commit**
+
+Run: `npm test && npx tsc --noEmit`
+
+```bash
+git add -A
+git commit -m "feat(receipts): add monthly submission to the accountant"
+```
+
+---
+
+### Task 14: Burst camera capture and file picking
+
+**Files:**
+- Create: `app/(client)/kamera.tsx`, `src/upload/capture.ts`
 - Modify: `app.config.ts` (camera/photo permission strings)
 - Test: `src/upload/__tests__/capture.test.ts`
 
 **Interfaces:**
-- Consumes: `enqueue` (Task 10), `drainOnce` (Task 11).
 - Produces:
-  - `captureToQueue(uri: string, period: string): Promise<QueueRecord>` — compresses the image, copies it into the document directory, enqueues it, and kicks the worker.
-  - `pickFromLibrary(period: string): Promise<QueueRecord[]>` and `pickDocument(period: string): Promise<QueueRecord | null>`.
+  - `captureToQueue(uri, period, clientId?): Promise<QueueRecord>`
+  - `pickFromLibrary(period, clientId?): Promise<QueueRecord[]>`
+  - `pickDocument(period, clientId?): Promise<QueueRecord | null>`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2451,6 +2669,11 @@ test("stores the capture outside the cache so it survives eviction", async () =>
   const [{ to }] = fs.copyAsync.mock.calls.map(([args]) => args);
   expect(to).toContain("file:///docs/");
 });
+
+test("threads clientId for an accountant's on-behalf capture", async () => {
+  await captureToQueue("file:///cache/raw.jpg", "2026-08", "c1");
+  expect(mockedQueue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ clientId: "c1" }));
+});
 ```
 
 - [ ] **Step 2: Implement**
@@ -2471,10 +2694,14 @@ const CAPTURE_DIR = `${FileSystem.documentDirectory}captures/`;
 
 /**
  * Resize + JPEG compression keeps a phone photo well under the API's 15 MB
- * limit while staying legible enough for Gemini extraction. This mirrors what
- * fislik-web does with browser-image-compression.
+ * limit while staying legible enough for Gemini extraction — the counterpart
+ * to what fislik-web does with browser-image-compression.
  */
-export async function captureToQueue(uri: string, period: string): Promise<QueueRecord> {
+export async function captureToQueue(
+  uri: string,
+  period: string,
+  clientId?: string,
+): Promise<QueueRecord> {
   const compressed = await ImageManipulator.manipulateAsync(uri, [{ resize: { width: 1600 } }], {
     compress: 0.7,
     format: ImageManipulator.SaveFormat.JPEG,
@@ -2484,7 +2711,12 @@ export async function captureToQueue(uri: string, period: string): Promise<Queue
   // has to outlive that, so it moves into the document directory first.
   const to = `${CAPTURE_DIR}${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
   await FileSystem.copyAsync({ from: compressed.uri, to });
-  const record = await enqueue({ localUri: to, contentType: "image/jpeg", period });
+  const record = await enqueue({
+    localUri: to,
+    contentType: "image/jpeg",
+    period,
+    ...(clientId ? { clientId } : {}),
+  });
   void drainOnce();
   return record;
 }
@@ -2494,82 +2726,125 @@ export async function captureToQueue(uri: string, period: string): Promise<Queue
 
 - [ ] **Step 3: Build the camera screen**
 
-`app/(client)/kamera.tsx` renders a full-screen `CameraView` with `facing="back"`. State: `shots: QueueRecord[]`. The shutter calls `takePictureAsync({ quality: 0.9 })` then `captureToQueue(photo.uri, period)` and appends to `shots` — the camera never closes between shots. Chrome: a top-left `X` closing back to the list; a bottom-left thumbnail strip of `shots` with a count badge; a bottom-right `Bitir` button that routes back. Permission handling: `useCameraPermissions`; when denied, render an `EmptyState` reading `Fiş çekebilmek için kamera izni gerekiyor` with a `Ayarları aç` button calling `Linking.openSettings()`. Also place a gallery icon that calls `pickFromLibrary` and a paperclip icon that calls `pickDocument`.
+`app/(client)/kamera.tsx` renders a full-screen `CameraView` with `facing="back"`. State: `shots: QueueRecord[]`. The shutter calls `takePictureAsync({ quality: 0.9 })` then `captureToQueue(photo.uri, period)` and appends to `shots` — the camera never closes between shots. Chrome: a top-left `X` back to the list; a bottom-left thumbnail strip with a count; a bottom-right `Bitir`; a gallery icon calling `pickFromLibrary`; a paperclip calling `pickDocument`. Permission denial renders an `EmptyState` reading `Fiş çekebilmek için kamera izni gerekiyor` with an `Ayarları aç` button calling `Linking.openSettings()`.
 
-- [ ] **Step 4: Add the permission strings**
-
-In `app.config.ts`:
+- [ ] **Step 4: Permission strings**
 
 ```ts
   plugins: [
     "expo-router",
+    "expo-font",
     ["expo-camera", { cameraPermission: "Fişlerinizi fotoğraflamak için kamera erişimi gerekiyor." }],
     ["expo-image-picker", { photosPermission: "Galerinizden fiş seçebilmek için fotoğraf erişimi gerekiyor." }],
   ],
 ```
 
-- [ ] **Step 5: Run tests and verify on a device**
+- [ ] **Step 5: Run tests, verify on a device, commit**
 
 Run: `npm test -- src/upload && npx tsc --noEmit`
 
-Manual: with the API running locally, shoot three receipts in a row, confirm all three appear in the list as `Yükleniyor` and then resolve into real receipts without leaving the screen.
-
-- [ ] **Step 6: Commit**
+Manual: shoot three receipts in a row against a local API and confirm all three appear as `Yükleniyor` then resolve, without leaving the screen.
 
 ```bash
 git add -A
-git commit -m "feat(capture): add burst camera capture, gallery and PDF picking
-
-Captures are compressed and moved out of the cache directory before being
-queued, so an OS cache eviction cannot lose a receipt that has not uploaded."
+git commit -m "feat(capture): add burst camera capture, gallery and PDF picking"
 ```
 
 ---
 
-### Task 14: Receipt detail and extraction editing
+### Task 15: Port the receipt review model
+
+The web keeps every derived receipt value — labels, analysis state, faulty-field detection, amount parsing — in one React-free module. Porting it wholesale is what keeps the two clients agreeing on what a receipt *means*, not just how it looks.
 
 **Files:**
-- Create: `app/(client)/fis/[id].tsx`
+- Create: `src/lib/receiptReview.ts`
+- Test: `src/lib/__tests__/receiptReview.test.ts`
+
+**Interfaces:**
+- Produces, ported from `fislik-web/src/lib/receiptReview.ts` (READ IT FIRST — it is the specification):
+  - `DOC_TYPE_LABELS`, `PAYMENT_LABELS`, `CATEGORY_LABELS`, `ANALYSIS_LABELS`
+  - `type AnalysisState = "done" | "pending" | "failed" | "none" | "deferred"` and the function deriving it from a `ReceiptOut`
+  - `mismatchedPeriod(receiptDate, period): string | null`
+  - `parseAmountInput(raw): string | null | undefined`
+  - `fmtDate(iso): string | null` — `"GG.AA.YYYY"`
+  - `slugifyTr(value, maxLength?)`
+  - the `ReviewRow` view model and its builder
+
+**Do NOT port:** `downloadExcel`, `downloadCsv`, `downloadJson`, `triggerDownload`, `escapeHtml`, and the `ReviewFilters` machinery. Those are browser-DOM exports and desktop-table concerns with no mobile screen behind them. Note in your report that you left them out.
+
+**Substitute `fmtTRY` and `fmtNum`:** the web builds them on `Intl`. Mobile already has a manual `formatMoney` from Task 9 that produces byte-identical output. Reuse it rather than introducing a second currency formatter, and implement `fmtNum` manually to match `toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })`.
+
+- [ ] **Step 1: Write the failing tests**
+
+At minimum:
+
+```ts
+import { analysisState, mismatchedPeriod, parseAmountInput, fmtDate, slugifyTr } from "../receiptReview";
+
+test("deferred is not the same as pending", () => {
+  expect(analysisState({ extraction: null } as never)).toBe("deferred");
+  expect(analysisState({ extraction: { status: "pending" } } as never)).toBe("pending");
+  expect(analysisState({ extraction: { status: "failed" } } as never)).toBe("failed");
+  expect(analysisState({ extraction: { status: "done" } } as never)).toBe("done");
+});
+
+test("flags a receipt filed under a different month than its own date", () => {
+  expect(mismatchedPeriod("2026-07-28", "2026-08")).toBe("2026-07");
+  expect(mismatchedPeriod("2026-08-03", "2026-08")).toBeNull();
+  expect(mismatchedPeriod(null, "2026-08")).toBeNull();
+});
+
+test("parses both Turkish and machine amount formats", () => {
+  expect(parseAmountInput("1.234,56")).toBe("1234.56");
+  expect(parseAmountInput("1234.56")).toBe("1234.56");
+  expect(parseAmountInput("1234")).toBe("1234");
+  expect(parseAmountInput("")).toBeNull();
+  expect(parseAmountInput("abc")).toBeUndefined();
+});
+
+test("formats an ISO date as GG.AA.YYYY", () => {
+  expect(fmtDate("2026-08-12")).toBe("12.08.2026");
+  expect(fmtDate(null)).toBeNull();
+});
+
+test("transliterates Turkish letters in slugs", () => {
+  expect(slugifyTr("Şişli Güneş Ticaret")).toBe("sisli-gunes-ticaret");
+});
+```
+
+Confirm `analysisState`'s exact name and shape against the web module before writing — mirror it rather than inventing.
+
+- [ ] **Step 2: Verify against the web, then commit**
+
+Run: `npm test -- src/lib && npx tsc --noEmit`
+
+Cross-check at least five receipts' derived values against the web implementation by running both over the same fixture; report any disagreement.
+
+```bash
+git add -A
+git commit -m "feat(lib): port the receipt review model from the web app"
+```
+
+---
+
+### Task 16: The extraction editor
+
+**Files:**
 - Create: `src/features/receipts/ExtractionEditor.tsx`
-- Modify: `src/api/endpoints.ts` (add `patchExtraction`, `changePeriod`, `deleteReceipt`)
+- Modify: `src/api/endpoints.ts` (`patchExtraction`, `retryExtraction`)
 - Test: `src/features/receipts/__tests__/ExtractionEditor.test.tsx`
 
 **Interfaces:**
-- Consumes: `queryKeys.receipts` (Task 3), lib helpers (Task 9).
 - Produces:
   - `patchExtraction(receiptId, data: ExtractionPatchIn): Promise<ExtractionOut>`
-  - `changePeriod(receiptId, period): Promise<ReceiptOut>`
-  - `deleteReceipt(receiptId): Promise<void>`
-  - `<ExtractionEditor extraction={ExtractionOut} onSave={(patch: ExtractionPatchIn) => Promise<void>} />`
+  - `retryExtraction(receiptId): Promise<ExtractionOut>` — `POST /receipts/{id}/extraction/retry`
+  - `<ExtractionEditor extraction onSave onRetry readOnly />`
 
-- [ ] **Step 1: Add the endpoints**
+Fields, all editable and all part of `ExtractionPatchIn`: `merchant_name` (Satıcı), `receipt_date` (Tarih), `total_amount` (Toplam), `vat_total` (KDV), `vat_breakdown` (read-only rows), `doc_type` (Belge türü: Fiş / Fatura / Bilinmiyor), `merchant_tax_id` (VKN/TCKN) with `merchant_tax_id_type` selector, `merchant_tax_office` (Vergi dairesi), `receipt_number` (Fiş no), `payment_method` (Ödeme: Nakit / Kredi Kartı / Bilinmiyor), `expense_category` (Kategori: the ten `CATEGORY_LABELS` values).
 
-```ts
-export type ExtractionOut = components["schemas"]["ExtractionOut"];
-export type ExtractionPatchIn = components["schemas"]["ExtractionPatchIn"];
+Use `PAYMENT_LABELS`, `CATEGORY_LABELS` and `DOC_TYPE_LABELS` from Task 15 — do not retype the Turkish labels.
 
-export function patchExtraction(receiptId: string, data: ExtractionPatchIn): Promise<ExtractionOut> {
-  return apiFetch<ExtractionOut>(`/receipts/${receiptId}/extraction`, {
-    method: "PATCH",
-    body: JSON.stringify(data),
-  });
-}
-
-export function changePeriod(receiptId: string, period: string): Promise<ReceiptOut> {
-  return apiFetch<ReceiptOut>(`/receipts/${receiptId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ period }),
-  });
-}
-
-export function deleteReceipt(receiptId: string): Promise<void> {
-  return apiFetch<void>(`/receipts/${receiptId}`, { method: "DELETE" });
-}
-```
-
-- [ ] **Step 2: Write the failing editor test**
-
-`src/features/receipts/__tests__/ExtractionEditor.test.tsx`:
+- [ ] **Step 1: Write the failing tests**
 
 ```tsx
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
@@ -2584,578 +2859,409 @@ const extraction = {
   vat_breakdown: [{ rate: 20, amount: "36.40" }],
   doc_type: "fis" as const,
   edited: false,
+  merchant_tax_id: "1234567890",
+  merchant_tax_id_type: "vkn" as const,
+  merchant_tax_office: "Şişli",
+  receipt_number: "A-42",
+  payment_method: "kredi_karti" as const,
+  expense_category: "market" as const,
 };
 
-test("shows the extracted values", () => {
-  render(<ExtractionEditor extraction={extraction} onSave={jest.fn()} />);
+test("shows every extracted field", () => {
+  render(<ExtractionEditor extraction={extraction} onSave={jest.fn()} onRetry={jest.fn()} />);
   expect(screen.getByDisplayValue("Migros")).toBeOnTheScreen();
-  expect(screen.getByDisplayValue("218.40")).toBeOnTheScreen();
+  expect(screen.getByDisplayValue("1234567890")).toBeOnTheScreen();
+  expect(screen.getByDisplayValue("A-42")).toBeOnTheScreen();
+  expect(screen.getByText("Kredi Kartı")).toBeOnTheScreen();
+  expect(screen.getByText("Market")).toBeOnTheScreen();
 });
 
 test("saves only the fields the user changed", async () => {
   const onSave = jest.fn().mockResolvedValue(undefined);
-  render(<ExtractionEditor extraction={extraction} onSave={onSave} />);
+  render(<ExtractionEditor extraction={extraction} onSave={onSave} onRetry={jest.fn()} />);
   fireEvent.changeText(screen.getByLabelText("Satıcı"), "Migros Jet");
   fireEvent.press(screen.getByText("Kaydet"));
   await waitFor(() => expect(onSave).toHaveBeenCalledWith({ merchant_name: "Migros Jet" }));
 });
 
-test("reports a pending extraction instead of empty fields", () => {
+test("normalises a Turkish-formatted amount before saving", async () => {
+  const onSave = jest.fn().mockResolvedValue(undefined);
+  render(<ExtractionEditor extraction={extraction} onSave={onSave} onRetry={jest.fn()} />);
+  fireEvent.changeText(screen.getByLabelText("Toplam"), "1.234,56");
+  fireEvent.press(screen.getByText("Kaydet"));
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({ total_amount: "1234.56" }));
+});
+
+test("rejects an unparseable amount instead of sending it", async () => {
+  const onSave = jest.fn();
+  render(<ExtractionEditor extraction={extraction} onSave={onSave} onRetry={jest.fn()} />);
+  fireEvent.changeText(screen.getByLabelText("Toplam"), "abc");
+  fireEvent.press(screen.getByText("Kaydet"));
+  expect(screen.getByText("Geçerli bir tutar girin")).toBeOnTheScreen();
+  expect(onSave).not.toHaveBeenCalled();
+});
+
+test("reports a running analysis instead of an empty form", () => {
   render(
     <ExtractionEditor
-      extraction={{ ...extraction, status: "pending", merchant_name: null, total_amount: null }}
+      extraction={{ ...extraction, status: "pending" }}
       onSave={jest.fn()}
+      onRetry={jest.fn()}
     />,
   );
   expect(screen.getByText("Fiş bilgileri çıkarılıyor…")).toBeOnTheScreen();
 });
+
+test("explains a deferred analysis rather than showing it as missing", () => {
+  render(<ExtractionEditor extraction={null} onSave={jest.fn()} onRetry={jest.fn()} />);
+  expect(
+    screen.getByText("Bu ayın analiz hakkı doldu. Fiş sıraya alındı, gelecek ay analiz edilecek."),
+  ).toBeOnTheScreen();
+});
+
+test("offers a retry when analysis failed", () => {
+  const onRetry = jest.fn();
+  render(
+    <ExtractionEditor
+      extraction={{ ...extraction, status: "failed" }}
+      onSave={jest.fn()}
+      onRetry={onRetry}
+    />,
+  );
+  fireEvent.press(screen.getByText("Yeniden dene"));
+  expect(onRetry).toHaveBeenCalled();
+});
+
+test("disables editing when the month is locked", () => {
+  render(
+    <ExtractionEditor extraction={extraction} onSave={jest.fn()} onRetry={jest.fn()} readOnly />,
+  );
+  expect(screen.queryByText("Kaydet")).toBeNull();
+});
 ```
 
-- [ ] **Step 3: Run to verify failure, then implement**
+- [ ] **Step 2: Implement**
 
-`ExtractionEditor` keeps a local draft initialised from the prop, renders `Input`s labelled `Satıcı`, `Tarih`, `Toplam`, `KDV`, a `fis`/`fatura` segmented control labelled `Belge türü`, and the VAT breakdown as read-only rows (`%20 · 36,40 ₺`). `Kaydet` diffs the draft against the original and calls `onSave` with only the changed keys. When `status === "pending"` it renders `Fiş bilgileri çıkarılıyor…` with a `Spinner` instead of the form; when `status === "failed"` it renders `Fiş bilgileri okunamadı, elle girebilirsiniz.` above an empty form.
+Keep a local draft initialised from the prop; `Kaydet` diffs it and sends only changed keys. Amounts go through `parseAmountInput` (Task 15): `undefined` means invalid — show `Geçerli bir tutar girin` and do not call `onSave`; `null` means cleared and is sent as `null`.
 
-- [ ] **Step 4: Build the detail screen**
+`extraction === null` renders the deferred message. `status === "pending"` renders `Fiş bilgileri çıkarılıyor…` with a `Spinner`. `status === "failed"` renders `Fiş bilgileri okunamadı, elle girebilirsiniz.` plus a `Yeniden dene` button above an editable form. `readOnly` hides `Kaydet` and disables every input.
 
-`app/(client)/fis/[id].tsx` reads the receipt from the `queryKeys.receipts(period)` cache (falling back to a refetch of the list when absent, since the API has no single-receipt endpoint), renders the image in a pinch-to-zoom view (`react-native-gesture-handler`'s `PinchGestureHandler`, or `WebView` for PDFs), then `ExtractionEditor`, then an actions section: `Ayı değiştir` (opens a `MonthPicker` sheet calling `changePeriod`), `Fişi sil` (a `danger` button behind a confirmation `Alert` reading `Bu fiş silinecek. Emin misiniz?`), and an open-issue card when `receipt.open_issue` is set, showing `open_issue.message` and `open_issue.author_name`. Every mutation invalidates `queryKeys.receipts(period)` and `queryKeys.summary(period)`.
-
-- [ ] **Step 5: Run tests and commit**
+- [ ] **Step 3: Run tests and commit**
 
 Run: `npm test && npx tsc --noEmit`
 
 ```bash
 git add -A
-git commit -m "feat(receipts): add receipt detail with extraction editing"
+git commit -m "feat(receipts): add the extraction editor with the full accounting field set"
 ```
 
 ---
 
-### Task 15: Accountant invitations, company profile, notifications and profile
+### Task 17: Receipt viewer and the client receipt detail screen
 
 **Files:**
-- Create: `app/(client)/muhasebecim.tsx`, `app/(client)/firma-bilgileri.tsx`
-- Create: `app/(client)/bildirimler.tsx`, `app/(client)/profil.tsx`
-- Create: `src/features/notifications/notificationText.ts`
-- Modify: `src/api/endpoints.ts` (grants, company, notifications)
-- Test: `src/features/notifications/__tests__/notificationText.test.ts`, `app/(client)/__tests__/muhasebecim.test.tsx`
+- Create: `src/features/receipts/ReceiptViewer.tsx`, `app/(client)/fis/[id].tsx`
+- Modify: `src/api/endpoints.ts` (`changePeriod`, `deleteReceipt`)
+- Test: `src/features/receipts/__tests__/ReceiptViewer.test.tsx`, `app/(client)/__tests__/fis.test.tsx`
 
 **Interfaces:**
 - Produces:
-  - Endpoints: `inviteAccountant(email)`, `listGrants()`, `revokeGrant(grantId)`, `getCompany()`, `saveCompany(data)`, `listNotifications()`, `markNotificationsRead(ids: string[] | null)`.
-  - `notificationText(n: NotificationOut): string` — maps a notification `type` + `payload` to Turkish copy. Read `fislik-web/src/pages/NotificationsPage.tsx` for the exact set of types and wording and mirror it.
+  - `changePeriod(receiptId, period): Promise<ReceiptOut>`, `deleteReceipt(receiptId): Promise<void>`
+  - `<ReceiptViewer receipt />` — pinch-zoom image, or an inline PDF when `isPdf(receipt)`
 
-- [ ] **Step 1: Add the endpoints**
+- [ ] **Step 1: Implement the viewer**
 
-```ts
-export type GrantOut = components["schemas"]["GrantOut"];
-export type CompanyOut = components["schemas"]["CompanyOut"];
-export type CompanyIn = components["schemas"]["CompanyIn"];
-export type NotificationsPage = components["schemas"]["NotificationsPage"];
-export type NotificationOut = components["schemas"]["NotificationOut"];
-
-export function inviteAccountant(email: string): Promise<GrantOut> {
-  return apiFetch<GrantOut>("/grants", { method: "POST", body: JSON.stringify({ email }) });
-}
-
-export function listGrants(): Promise<GrantOut[]> {
-  return apiFetch<GrantOut[]>("/grants");
-}
-
-export function revokeGrant(grantId: string): Promise<void> {
-  return apiFetch<void>(`/grants/${grantId}`, { method: "DELETE" });
-}
-
-export function getCompany(): Promise<CompanyOut> {
-  return apiFetch<CompanyOut>("/company");
-}
-
-export function saveCompany(data: CompanyIn): Promise<CompanyOut> {
-  return apiFetch<CompanyOut>("/company", { method: "PUT", body: JSON.stringify(data) });
-}
-
-export function listNotifications(): Promise<NotificationsPage> {
-  return apiFetch<NotificationsPage>("/notifications");
-}
-
-export function markNotificationsRead(ids: string[] | null): Promise<void> {
-  return apiFetch<void>("/notifications/read", { method: "POST", body: JSON.stringify({ ids }) });
-}
+```bash
+npx expo install react-native-gesture-handler react-native-webview
 ```
 
-Confirm the invite request body key against `fislik-web/src/api/endpoints.ts:105` before implementing.
+`ReceiptViewer` renders an `Image` inside a pinch/pan gesture for images, and a `WebView` pointed at `receipt.image_url` for PDFs. Test that `isPdf` selects the right branch — that is the one thing worth asserting here.
 
-- [ ] **Step 2: Write the failing tests**
-
-`app/(client)/__tests__/muhasebecim.test.tsx`:
+- [ ] **Step 2: Write the failing screen test**
 
 ```tsx
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import AccountantsScreen from "../muhasebecim";
-import * as endpoints from "@/src/api/endpoints";
+test("blocks editing and deletion when the month is locked", async () => {
+  mocked.periodLockStatus.mockResolvedValue({ locked: true, locked_at: "2026-09-01T00:00:00Z" });
+  renderScreen();
+  await waitFor(() => expect(screen.getByText(/kapatıldı/)).toBeOnTheScreen());
+  expect(screen.queryByText("Fişi sil")).toBeNull();
+  expect(screen.queryByText("Ayı değiştir")).toBeNull();
+});
 
-jest.mock("@/src/api/endpoints");
-const mocked = endpoints as jest.Mocked<typeof endpoints>;
+test("confirms before deleting", async () => {
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("Fişi sil")).toBeOnTheScreen());
+  fireEvent.press(screen.getByText("Fişi sil"));
+  expect(screen.getByText("Bu fiş silinecek. Emin misiniz?")).toBeOnTheScreen();
+  expect(mocked.deleteReceipt).not.toHaveBeenCalled();
+});
 
-function renderScreen() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <AccountantsScreen />
-    </QueryClientProvider>,
+test("warns when the receipt's own date falls outside the filed month", async () => {
+  // extraction.receipt_date 2026-07-28 while period is 2026-08
+  renderScreen();
+  await waitFor(() =>
+    expect(screen.getByText(/Temmuz 2026 tarihli/)).toBeOnTheScreen(),
   );
-}
-
-beforeEach(() => jest.clearAllMocks());
-
-test("lists an active accountant", async () => {
-  mocked.listGrants.mockResolvedValue([
-    { id: "g1", status: "active", invited_email: "m@test.com", accountant_name: "Ayşe Yılmaz" },
-  ]);
-  renderScreen();
-  await waitFor(() => expect(screen.getByText("Ayşe Yılmaz")).toBeOnTheScreen());
-});
-
-test("shows the invited address while an invitation is pending", async () => {
-  mocked.listGrants.mockResolvedValue([
-    { id: "g1", status: "pending", invited_email: "m@test.com", accountant_name: null },
-  ]);
-  renderScreen();
-  await waitFor(() => expect(screen.getByText("m@test.com")).toBeOnTheScreen());
-  expect(screen.getByText("Davet bekleniyor")).toBeOnTheScreen();
-});
-
-test("sends an invitation", async () => {
-  mocked.listGrants.mockResolvedValue([]);
-  mocked.inviteAccountant.mockResolvedValue({
-    id: "g2",
-    status: "pending",
-    invited_email: "yeni@test.com",
-    accountant_name: null,
-  });
-  renderScreen();
-  await waitFor(() => expect(screen.getByLabelText("Mali müşavir e-postası")).toBeOnTheScreen());
-  fireEvent.changeText(screen.getByLabelText("Mali müşavir e-postası"), "yeni@test.com");
-  fireEvent.press(screen.getByText("Davet gönder"));
-  await waitFor(() => expect(mocked.inviteAccountant).toHaveBeenCalledWith("yeni@test.com"));
 });
 ```
 
-`src/features/notifications/__tests__/notificationText.test.ts` asserts one case per notification type produced by the API's `notifications` module — read `fislik-api/app/modules/notifications/` for the full list of `type` values and their payload shapes, and write one assertion per type.
+- [ ] **Step 3: Implement the screen**
 
-- [ ] **Step 3: Implement the screens**
-
-`muhasebecim.tsx` — a `Card` per grant showing `accountant_name ?? invited_email`, a `Badge` (`Aktif`/`Davet bekleniyor`), and an `Erişimi kaldır` action behind a confirmation `Alert`; below the list, an e-mail `Input` labelled `Mali müşavir e-postası` and a `Davet gönder` button. Every mutation invalidates `queryKeys.grants()`.
-
-`firma-bilgileri.tsx` — a form over `CompanyOut`: `Adı Soyadı`, `Ticaret Ünvanı`, `Vergi Dairesi`, `Vergi Kimlik No` (10 digits, numeric keyboard, validated with `Vergi kimlik no 10 haneli olmalı`), `TC Kimlik No` (11 digits, `TC kimlik no 11 haneli olmalı`), `İş Yeri Adresi` (multiline), `Vergi Türü`, `Faaliyet Kodu`, `Faaliyet Adı`, `İşe Başlama Tarihi`. Saving calls `saveCompany` and invalidates `queryKeys.company()`. Link to it from `profil.tsx`.
-
-`bildirimler.tsx` — a `FlatList` over `listNotifications().items` rendering `notificationText(n)` and `formatDateTime(n.created_at)`, unread rows tinted `${tokens.color.primary}0D`. On mount, call `markNotificationsRead(null)` once and invalidate `queryKeys.notifications()`. Show the unread count as a tab-bar badge via `Tabs.Screen` `options.tabBarBadge`.
-
-`profil.tsx` — the user's name and role (`Mükellef` / `Mali müşavir`), a link to `Firma bilgileri` (client role only), a `Switch` bound to `isBiometricEnabled`/`setBiometricEnabled` labelled `Biyometrik kilit`, hidden when `isBiometricAvailable()` resolves false, and a `Çıkış yap` button calling `signOut`.
+Reads the receipt from the `queryKeys.receipts(period)` cache, falling back to refetching the list (the API has no single-receipt endpoint). Renders `ReceiptViewer`, the mismatched-period warning from `mismatchedPeriod`, `ExtractionEditor` (with `readOnly` when the month is locked), the open-issue card when `receipt.open_issue` is set, and — only when unlocked — `Ayı değiştir` and `Fişi sil` behind a confirmation. Every mutation invalidates `queryKeys.receipts(period)` and `queryKeys.summary(period)`; a period change invalidates both the old and new period.
 
 - [ ] **Step 4: Run tests and commit**
 
-Run: `npm test && npx tsc --noEmit`
-
 ```bash
 git add -A
-git commit -m "feat(client): add accountant invitations, company profile, notifications and profile"
+git commit -m "feat(receipts): add the receipt viewer and client detail screen"
 ```
 
 ---
-# Phase 3 — Accountant role
 
-### Task 16: Client list
+### Task 18: Mutual-consent grants, both directions
+
+The web renders the same invitation surface on the client's Muhasebecim page and the accountant's Mükellefler page. Build it once here; Task 21 mounts it on the accountant side.
 
 **Files:**
-- Create: `app/(accountant)/_layout.tsx`, `app/(accountant)/index.tsx`
-- Create: `src/features/clients/ClientCard.tsx`
-- Modify: `src/api/endpoints.ts` (add `listClients`)
-- Test: `app/(accountant)/__tests__/index.test.tsx`
+- Create: `src/features/grants/IncomingInviteCard.tsx`, `GrantCard.tsx`, `InviteForm.tsx`, `GrantsSection.tsx`
+- Create: `app/(client)/muhasebecim.tsx`
+- Modify: `src/api/endpoints.ts`
+- Test: `src/features/grants/__tests__/{IncomingInviteCard,GrantsSection}.test.tsx`
 
 **Interfaces:**
-- Consumes: `MonthPicker` (Task 12), theme components (Task 2), lib helpers (Task 9).
 - Produces:
-  - `listClients(period: string): Promise<ClientSummaryOut[]>` where `ClientSummaryOut = { client_id, full_name, receipt_count, unprocessed_count, last_upload_at }`.
-  - `<ClientCard client={ClientSummaryOut} onPress={fn} />`.
+  - `inviteCounterpart(email): Promise<GrantOut>` — `POST /grants`
+  - `acceptGrant(grantId)`, `declineGrant(grantId)`, `revokeGrant(grantId)`, `listGrants()`
+  - `acceptInviteByToken(token): Promise<GrantOut>` — `POST /grants/invite/{token}/accept`
+  - `<GrantsSection role={Role} />` — the whole surface, usable by either role
 
-- [ ] **Step 1: Add the endpoint**
+`GrantOut` carries `direction: "incoming" | "outgoing"`, `status`, `counterpart_name`, `counterpart_email`, `invited_email`, `invited_role`.
 
-```ts
-export type ClientSummaryOut = components["schemas"]["ClientSummaryOut"];
-
-export function listClients(period: string): Promise<ClientSummaryOut[]> {
-  return apiFetch<ClientSummaryOut[]>(`/clients?period=${encodeURIComponent(period)}`);
-}
-```
-
-- [ ] **Step 2: Write the failing test**
-
-`app/(accountant)/__tests__/index.test.tsx`:
+- [ ] **Step 1: Write the failing tests**
 
 ```tsx
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react-native";
-import ClientsScreen from "../index";
-import * as endpoints from "@/src/api/endpoints";
-
-jest.mock("@/src/api/endpoints");
-jest.mock("expo-router", () => ({ router: { push: jest.fn() }, Link: ({ children }: never) => children }));
-
-const mocked = endpoints as jest.Mocked<typeof endpoints>;
-
-function renderScreen() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <ClientsScreen />
-    </QueryClientProvider>,
+test("an incoming invite explains who is asking and for what", () => {
+  render(
+    <IncomingInviteCard
+      grant={{
+        id: "g1",
+        direction: "incoming",
+        status: "pending",
+        invited_role: "accountant",
+        counterpart_name: "Selin Ticaret",
+        counterpart_email: "selin@test.com",
+        invited_email: "m@test.com",
+        accountant_name: null,
+      }}
+      onAccept={jest.fn()}
+      onDecline={jest.fn()}
+      busy={false}
+    />,
   );
-}
-
-beforeEach(() => jest.clearAllMocks());
-
-test("lists clients with their unprocessed count", async () => {
-  mocked.listClients.mockResolvedValue([
-    {
-      client_id: "c1",
-      full_name: "Selin Ticaret",
-      receipt_count: 12,
-      unprocessed_count: 3,
-      last_upload_at: "2026-08-06T09:00:00Z",
-    },
-  ]);
-  renderScreen();
-  await waitFor(() => expect(screen.getByText("Selin Ticaret")).toBeOnTheScreen());
-  expect(screen.getByText("3 işlenmemiş")).toBeOnTheScreen();
+  expect(screen.getByText(/Selin Ticaret/)).toBeOnTheScreen();
+  expect(screen.getByText(/muhasebecisi olarak eklemek istiyor/)).toBeOnTheScreen();
 });
 
-test("omits the unprocessed badge when everything is done", async () => {
-  mocked.listClients.mockResolvedValue([
-    {
-      client_id: "c1",
-      full_name: "Selin Ticaret",
-      receipt_count: 12,
-      unprocessed_count: 0,
-      last_upload_at: "2026-08-06T09:00:00Z",
-    },
-  ]);
-  renderScreen();
-  await waitFor(() => expect(screen.getByText("Selin Ticaret")).toBeOnTheScreen());
-  expect(screen.queryByText(/işlenmemiş/)).toBeNull();
+test("the copy flips when the viewer is the invited client", () => {
+  render(<IncomingInviteCard grant={{ ...grant, invited_role: "client" }} … />);
+  expect(screen.getByText(/muhasebeciniz olarak/)).toBeOnTheScreen();
 });
 
-test("shows an empty state when no client has granted access", async () => {
-  mocked.listClients.mockResolvedValue([]);
-  renderScreen();
-  await waitFor(() =>
-    expect(screen.getByText("Henüz mükellefiniz yok")).toBeOnTheScreen(),
-  );
+test("accepts and declines", () => { /* press Kabul Et / Reddet, assert handlers */ });
+
+test("separates incoming pending invites from the user's own grants", async () => {
+  mocked.listGrants.mockResolvedValue([
+    { id: "g1", direction: "incoming", status: "pending", … },
+    { id: "g2", direction: "outgoing", status: "active", … },
+  ]);
+  render(<GrantsSection role="client" />);
+  await waitFor(() => expect(screen.getByText("Kabul Et")).toBeOnTheScreen());
+  expect(screen.queryAllByText("Erişimi kaldır")).toHaveLength(1);
 });
 ```
 
-- [ ] **Step 3: Run to verify failure**
+Copy, ported verbatim from `fislik-web/src/components/IncomingInviteCard.tsx`:
+- `invited_role === "accountant"` → `"<name> fiş ve faturalarını sizinle paylaşmak için sizi muhasebecisi olarak eklemek istiyor."`
+- `invited_role === "client"` → `"<name> muhasebeciniz olarak fiş ve faturalarınızı Fişlik üzerinden toplamak istiyor."`
+- Buttons: `Kabul Et` / `Reddet`, busy label `İşleniyor…`. Invite button: `Davet Gönder`, busy `Gönderiliyor…`.
 
-Run: `npm test -- "app/(accountant)"`
-Expected: FAIL — module not found.
+- [ ] **Step 2: Implement**
 
-- [ ] **Step 4: Implement**
+`GrantsSection` splits `grants` exactly as the web does:
 
-`app/(accountant)/_layout.tsx` uses `Tabs` with three screens — `index` (`Mükellefler`, `Users`), `bildirimler` (`Bildirimler`, `Bell`), `profil` (`Profil`, `User`) — with the same styling as the client tab bar. Reuse the notification and profile screens from Task 15 by re-exporting them:
+```ts
+const incoming = grants.filter((g) => g.direction === "incoming" && g.status === "pending");
+const own = grants.filter((g) => !(g.direction === "incoming" && g.status === "pending"));
+```
+
+Incoming render as `IncomingInviteCard`; the rest as `GrantCard` (name = `counterpart_name ?? invited_email`, a status `Badge`, and `Erişimi kaldır` behind a confirmation whose copy names the counterpart). Below them, `InviteForm` with an e-mail `Input` labelled `Mali müşavir e-postası` for the client role and `Mükellef e-postası` for the accountant role. Every mutation invalidates `queryKeys.grants()`.
+
+`app/(client)/muhasebecim.tsx` is a thin screen rendering `<GrantsSection role="client" />`.
+
+- [ ] **Step 3: Update the invite-accept screen from Task 7**
+
+`app/(auth)/davet/[token].tsx` must now handle both directions. `InviteInfoOut` carries `inviter_name`, `inviter_role`, `invited_role`. An unauthenticated visitor registers with `role: invited_role`; an already-authenticated visitor whose role matches calls `acceptInviteByToken(token)` instead of registering. Add a test for each path.
+
+- [ ] **Step 4: Run tests and commit**
+
+```bash
+git add -A
+git commit -m "feat(grants): add mutual-consent invitations for both roles"
+```
+
+---
+
+### Task 19: Company profile
+
+**Files:**
+- Create: `app/(client)/firma-bilgileri.tsx`
+- Modify: `src/api/endpoints.ts` (`getCompany`, `saveCompany`, `getClientCompany`)
+- Test: `app/(client)/__tests__/firma-bilgileri.test.tsx`
+
+Form over `CompanyOut`: `Adı Soyadı`, `Ticaret Ünvanı`, `Vergi Dairesi`, `Vergi Kimlik No` (10 digits, numeric, `Vergi kimlik no 10 haneli olmalı`), `TC Kimlik No` (11 digits, `TC kimlik no 11 haneli olmalı`), `İş Yeri Adresi` (multiline), `Vergi Türü`, `Faaliyet Kodu`, `Faaliyet Adı`, `İşe Başlama Tarihi`. Saving calls `saveCompany` and invalidates `queryKeys.company()`. Tests: renders existing values, rejects a 9-digit tax number without calling the API, saves a valid form.
+
+```bash
+git commit -m "feat(company): add the company profile screen"
+```
+
+---
+
+### Task 20: Notifications, profile, password change and the impersonation banner
+
+**Files:**
+- Create: `src/features/notifications/notificationText.ts`, `src/auth/ImpersonationBanner.tsx`
+- Rewrite: `app/(client)/bildirimler.tsx`, `app/(client)/profil.tsx` (replacing Task 12's placeholders)
+- Modify: `src/api/endpoints.ts`, both `_layout.tsx` files
+- Test: `src/features/notifications/__tests__/notificationText.test.ts`, `app/(client)/__tests__/profil.test.tsx`
+
+**Interfaces:**
+- Produces: `listNotifications()`, `markNotificationsRead(ids)`, `changePassword({ current_password, new_password })` — confirm the exact body keys against `fislik-web/src/api/endpoints.ts:49`.
+  - `notificationText(n: NotificationOut): string` — one branch per `type` the API emits. **Read `fislik-api/app/modules/notifications/` for the full list** (it grew with the submission and credit features) and mirror `fislik-web/src/pages/NotificationsPage.tsx`'s wording. Write one test per type; an unknown type must fall back to something readable rather than rendering `undefined`.
+  - `<ImpersonationBanner />` — renders only when `useAuth().user?.impersonated` is true, with copy making it unmistakable that the session is being driven by an admin.
+
+Profile screen: name, role label, `Şifre değiştir` (current + new + confirm, min 8, `Şifre en az 8 karakter olmalı`), a biometric `Switch` hidden when `isBiometricAvailable()` is false, and `Çıkış yap`. Mount `<ImpersonationBanner />` at the top of both `(client)/_layout.tsx` and `(accountant)/_layout.tsx`.
+
+```bash
+git commit -m "feat(profile): add notifications, password change and the impersonation banner"
+```
+
+---
+
+# Phase 3 — Accountant role
+
+### Task 21: Client list and incoming invitations
+
+**Files:**
+- Create: `app/(accountant)/_layout.tsx`, `app/(accountant)/index.tsx`, `src/features/clients/ClientCard.tsx`
+- Create: `app/(accountant)/bildirimler.tsx`, `app/(accountant)/profil.tsx` (re-exporting the client screens)
+- Modify: `src/api/endpoints.ts` (`listClients`), `src/lib/user.ts` (port `initials` from the web)
+- Test: `app/(accountant)/__tests__/index.test.tsx`
+
+Tabs: `index` (`Mükellefler`), `bildirimler`, `profil`. Reuse the shared screens:
 
 ```tsx
 // app/(accountant)/bildirimler.tsx
 export { default } from "@/app/(client)/bildirimler";
 ```
 
-`app/(accountant)/index.tsx` holds `period` state from `currentPeriod()`, renders `<MonthPicker>` and a `FlatList` of `ClientCard`s, pushing `/(accountant)/mukellef/${client_id}?period=${period}` on press. Empty state title `Henüz mükellefiniz yok`, description `Mükellefiniz sizi davet ettiğinde burada görünecek.`
+The screen renders `<MonthPicker>`, `<GrantsSection role="accountant" />`'s incoming-invite portion above the list (the accountant accepts client invitations here), then `ClientCard`s pushing `/(accountant)/mukellef/${client_id}?period=${period}`.
 
-`ClientCard` shows the initials avatar (reuse the `initials` helper ported from `fislik-web/src/lib/user.ts`), `full_name`, `` `${receipt_count} fiş` ``, a `Badge` reading `` `${unprocessed_count} işlenmemiş` `` with tone `warning` only when `unprocessed_count > 0`, and `Son yükleme: ${formatDateTime(last_upload_at)}` when set.
+`ClientCard`: initials avatar, `full_name`, `` `${receipt_count} fiş` ``, a `warning` badge `` `${unprocessed_count} işlenmemiş` `` only when non-zero, and `Son yükleme: …` when `last_upload_at` is set. Empty state: `Henüz mükellefiniz yok` / `Mükellefiniz sizi davet ettiğinde burada görünecek.`
 
-- [ ] **Step 5: Run tests and commit**
-
-Run: `npm test && npx tsc --noEmit`
+Tests: lists a client with its unprocessed count; omits the badge at zero; shows the empty state; shows an incoming invitation.
 
 ```bash
-git add -A
-git commit -m "feat(accountant): add the client list screen"
+git commit -m "feat(accountant): add the client list and incoming invitations"
 ```
 
 ---
 
-### Task 17: Client month view with processed marking
+### Task 22: Client month view
 
 **Files:**
 - Create: `app/(accountant)/mukellef/[clientId].tsx`
-- Modify: `src/api/endpoints.ts` (client receipts, mark/unmark processed, client company)
+- Modify: `src/api/endpoints.ts`
 - Test: `app/(accountant)/__tests__/mukellef.test.tsx`
 
 **Interfaces:**
-- Consumes: `queryKeys.clientReceipts` / `.clientCompany` (Task 3), `ReceiptCard` (Task 12).
-- Produces:
-  - `clientReceipts(clientId, period): Promise<ReceiptOut[]>`
-  - `markProcessed(clientId, receiptId): Promise<void>` / `unmarkProcessed(clientId, receiptId): Promise<void>`
-  - `bulkMarkProcessed(clientId, period): Promise<{ marked: number }>` / `bulkUnmarkProcessed(clientId, period): Promise<{ unmarked: number }>`
-  - `getClientCompany(clientId): Promise<CompanyOut>`
+- Produces: `clientReceipts(clientId, period)`, `markProcessed(clientId, receiptId)`, `unmarkProcessed(clientId, receiptId)`, `bulkMarkProcessed(clientId, period)`, `bulkUnmarkProcessed(clientId, period)`, `getClientCompany(clientId)`.
 
-- [ ] **Step 1: Add the endpoints**
+Mirror `fislik-web/src/api/endpoints.ts:173-215` exactly — read it first for the HTTP methods and whether `period` travels in the body or the query string for each of the four processed-marking calls.
 
-Mirror `fislik-web/src/api/endpoints.ts:130-180` exactly — read it first, especially the HTTP methods and whether `period` travels in the body or the query string for each of the four processed-marking calls.
-
-```ts
-export function clientReceipts(clientId: string, period: string): Promise<ReceiptOut[]> {
-  return apiFetch<ReceiptOut[]>(
-    `/clients/${clientId}/receipts?period=${encodeURIComponent(period)}`,
-  );
-}
-
-export function getClientCompany(clientId: string): Promise<CompanyOut> {
-  return apiFetch<CompanyOut>(`/clients/${clientId}/company`);
-}
-```
-
-- [ ] **Step 2: Write the failing test**
-
-`app/(accountant)/__tests__/mukellef.test.tsx`:
-
-```tsx
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import ClientMonthScreen from "../mukellef/[clientId]";
-import * as endpoints from "@/src/api/endpoints";
-
-jest.mock("@/src/api/endpoints");
-jest.mock("expo-router", () => ({
-  useLocalSearchParams: () => ({ clientId: "c1", period: "2026-08" }),
-  router: { push: jest.fn(), back: jest.fn() },
-  Link: ({ children }: never) => children,
-}));
-
-const mocked = endpoints as jest.Mocked<typeof endpoints>;
-
-const receipt = {
-  id: "r1",
-  period: "2026-08",
-  created_at: "2026-08-05T10:00:00Z",
-  image_url: "https://r2/r1.jpg",
-  processed: false,
-  open_issue: null,
-};
-
-function renderScreen() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <ClientMonthScreen />
-    </QueryClientProvider>,
-  );
-}
-
-beforeEach(() => {
-  jest.clearAllMocks();
-  mocked.getClientCompany.mockResolvedValue({} as never);
-});
-
-test("marks every unprocessed receipt of the month", async () => {
-  mocked.clientReceipts.mockResolvedValue([receipt] as never);
-  mocked.bulkMarkProcessed.mockResolvedValue({ marked: 1 });
-  renderScreen();
-  await waitFor(() => expect(screen.getByText("Tümünü işlendi yap")).toBeOnTheScreen());
-  fireEvent.press(screen.getByText("Tümünü işlendi yap"));
-  await waitFor(() => expect(mocked.bulkMarkProcessed).toHaveBeenCalledWith("c1", "2026-08"));
-});
-
-test("hides the bulk action when nothing is unprocessed", async () => {
-  mocked.clientReceipts.mockResolvedValue([{ ...receipt, processed: true }] as never);
-  renderScreen();
-  await waitFor(() => expect(screen.getByText("İşlendi")).toBeOnTheScreen());
-  expect(screen.queryByText("Tümünü işlendi yap")).toBeNull();
-});
-
-test("shows an empty state for a month with no receipts", async () => {
-  mocked.clientReceipts.mockResolvedValue([]);
-  renderScreen();
-  await waitFor(() =>
-    expect(screen.getByText("Bu ay için fiş yüklenmemiş")).toBeOnTheScreen(),
-  );
-});
-```
-
-- [ ] **Step 3: Run to verify failure, then implement**
-
-The screen reads `clientId` and `period` from `useLocalSearchParams`, renders a header with the client's name and a `MonthPicker` bound to `period` (updating the route params), a collapsible `Firma bilgileri` card from `getClientCompany`, a two-column `FlatList` of `ReceiptCard`s pushing `/(accountant)/mukellef/${clientId}/fis/${id}`, and an action bar. The action bar shows `Tümünü işlendi yap` when at least one receipt has `processed === false`, and `Tümünün işaretini kaldır` otherwise; both invalidate `queryKeys.clientReceipts(clientId, period)` and `queryKeys.clients(period)`. A long press on a card toggles that single receipt via `markProcessed`/`unmarkProcessed`. Empty state: `Bu ay için fiş yüklenmemiş`.
-
-- [ ] **Step 4: Run tests and commit**
-
-Run: `npm test && npx tsc --noEmit`
+The screen: header with the client's name, `MonthPicker` bound to the route param, a collapsible company card, a two-column `FlatList` of `ReceiptCard`s pushing the accountant detail route, and an action bar showing `Tümünü işlendi yap` when any receipt is unprocessed and `Tümünün işaretini kaldır` otherwise. Long-press toggles a single receipt. Every mutation invalidates `queryKeys.clientReceipts(clientId, period)` and `queryKeys.clients(period)`. Empty state: `Bu ay için fiş yüklenmemiş`.
 
 ```bash
-git add -A
 git commit -m "feat(accountant): add the client month view with processed marking"
 ```
 
 ---
 
-### Task 18: Issue reporting on the accountant's receipt detail
+### Task 23: Locking and unlocking a month
 
 **Files:**
-- Create: `app/(accountant)/mukellef/[clientId]/fis/[id].tsx`
-- Create: `src/features/receipts/IssueSection.tsx`
-- Modify: `src/api/endpoints.ts` (add `openIssue`, `resolveIssue`)
-- Test: `src/features/receipts/__tests__/IssueSection.test.tsx`
+- Modify: `app/(accountant)/mukellef/[clientId].tsx`, `src/api/endpoints.ts`
+- Test: extend `app/(accountant)/__tests__/mukellef.test.tsx`
 
 **Interfaces:**
-- Consumes: `ExtractionEditor` (Task 14).
-- Produces:
-  - `openIssue(clientId, receiptId, message): Promise<IssueOut>` — posts to `/clients/{clientId}/receipts/{receiptId}/issues`.
-  - `resolveIssue(issueId): Promise<void>` — posts to `/issues/{issueId}/resolve`.
-  - `<IssueSection issue={IssueOut | null} onOpen={(message: string) => Promise<void>} onResolve={() => Promise<void>} />`
+- Produces: `lockPeriod(clientId, period): Promise<PeriodLockOut>` (`POST`), `unlockPeriod(clientId, period): Promise<void>` (`DELETE`).
 
-- [ ] **Step 1: Add the endpoints**
+Add a lock control to the action bar: when unlocked, `Ayı kapat` behind a confirmation explaining that the client can no longer file into this month and that later uploads roll into the next open one; when locked, `Ayı aç`. Both invalidate `queryKeys.periodLock(period, clientId)`.
 
-```ts
-export type IssueOut = components["schemas"]["IssueOut"];
-
-export function openIssue(clientId: string, receiptId: string, message: string): Promise<IssueOut> {
-  return apiFetch<IssueOut>(`/clients/${clientId}/receipts/${receiptId}/issues`, {
-    method: "POST",
-    body: JSON.stringify({ message }),
-  });
-}
-
-export function resolveIssue(issueId: string): Promise<void> {
-  return apiFetch<void>(`/issues/${issueId}/resolve`, { method: "POST" });
-}
-```
-
-- [ ] **Step 2: Write the failing test**
-
-`src/features/receipts/__tests__/IssueSection.test.tsx`:
-
-```tsx
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { IssueSection } from "../IssueSection";
-
-test("reports a new issue", async () => {
-  const onOpen = jest.fn().mockResolvedValue(undefined);
-  render(<IssueSection issue={null} onOpen={onOpen} onResolve={jest.fn()} />);
-  fireEvent.press(screen.getByText("Sorun bildir"));
-  fireEvent.changeText(screen.getByLabelText("Sorun açıklaması"), "Fiş okunmuyor");
-  fireEvent.press(screen.getByText("Gönder"));
-  await waitFor(() => expect(onOpen).toHaveBeenCalledWith("Fiş okunmuyor"));
-});
-
-test("does not submit an empty message", () => {
-  const onOpen = jest.fn();
-  render(<IssueSection issue={null} onOpen={onOpen} onResolve={jest.fn()} />);
-  fireEvent.press(screen.getByText("Sorun bildir"));
-  fireEvent.press(screen.getByText("Gönder"));
-  expect(onOpen).not.toHaveBeenCalled();
-  expect(screen.getByText("Lütfen sorunu açıklayın")).toBeOnTheScreen();
-});
-
-test("shows an open issue and resolves it", async () => {
-  const onResolve = jest.fn().mockResolvedValue(undefined);
-  render(
-    <IssueSection
-      issue={{
-        id: "i1",
-        message: "Fiş okunmuyor",
-        author_name: "Ayşe Yılmaz",
-        created_at: "2026-08-06T09:00:00Z",
-      }}
-      onOpen={jest.fn()}
-      onResolve={onResolve}
-    />,
-  );
-  expect(screen.getByText("Fiş okunmuyor")).toBeOnTheScreen();
-  expect(screen.getByText("Ayşe Yılmaz")).toBeOnTheScreen();
-  fireEvent.press(screen.getByText("Sorunu çöz"));
-  await waitFor(() => expect(onResolve).toHaveBeenCalled());
-});
-```
-
-- [ ] **Step 3: Run to verify failure, then implement**
-
-`IssueSection` renders, when `issue` is null, a `Sorun bildir` button that opens a `Modal` with a multiline `Input` labelled `Sorun açıklaması` and a `Gönder` button; an empty message shows `Lütfen sorunu açıklayın` and does not call `onOpen`. When `issue` is set it renders a `warning`-toned card with the message, `author_name`, `formatDateTime(created_at)`, and a `Sorunu çöz` button.
-
-The accountant's receipt detail screen reuses the layout from Task 14 — zoomable image plus `ExtractionEditor` — and adds `IssueSection`. Mutations invalidate `queryKeys.clientReceipts(clientId, period)`.
-
-- [ ] **Step 4: Run tests and commit**
-
-Run: `npm test && npx tsc --noEmit`
+Tests: locking calls the endpoint after confirmation; the control flips label with lock state; a locked month shows the locked indicator.
 
 ```bash
-git add -A
-git commit -m "feat(accountant): add issue reporting and resolution on receipt detail"
+git commit -m "feat(accountant): add month locking and unlocking"
 ```
 
 ---
 
-### Task 19: Monthly ZIP export via the share sheet
+### Task 24: Uploading on a client's behalf
+
+**Files:**
+- Create: `app/(accountant)/mukellef/[clientId]/kamera.tsx`
+- Modify: `app/(accountant)/mukellef/[clientId].tsx`
+- Test: extend the capture tests
+
+The `clientId` plumbing already exists (Tasks 10, 11, 14). This task adds the accountant-side entry point: a `Fiş Yükle` action opening the same camera screen with `clientId` threaded through `captureToQueue`, and the queue rendering those records in the client's month view. Note in the UI that the upload is paid from the accountant's own analysis credit, as the web does.
+
+Tests: an accountant capture enqueues with `clientId`; the resulting record appears in that client's month view, not in the accountant's own list.
+
+```bash
+git commit -m "feat(accountant): allow uploading receipts on a client's behalf"
+```
+
+---
+
+### Task 25: Issue reporting and resolution
+
+**Files:**
+- Create: `src/features/receipts/IssueSection.tsx`, `app/(accountant)/mukellef/[clientId]/fis/[id].tsx`
+- Modify: `src/api/endpoints.ts`
+- Test: `src/features/receipts/__tests__/IssueSection.test.tsx`
+
+**Interfaces:**
+- Produces: `openIssue(clientId, receiptId, message)` — `POST /clients/{clientId}/receipts/{receiptId}/issues`; `resolveIssue(issueId)` — `POST /issues/{issueId}/resolve`.
+  - `<IssueSection issue onOpen onResolve />`
+
+With no issue: a `Sorun bildir` button opening a modal with a multiline `Input` labelled `Sorun açıklaması` and `Gönder`; an empty message shows `Lütfen sorunu açıklayın` and does not submit. With an issue: a `warning` card showing the message, `author_name`, `formatDateTime(created_at)`, and `Sorunu çöz`.
+
+The accountant detail screen reuses `ReceiptViewer` + `ExtractionEditor` from Tasks 16–17 and adds `IssueSection`. Mutations invalidate `queryKeys.clientReceipts(clientId, period)`.
+
+```bash
+git commit -m "feat(accountant): add issue reporting and resolution"
+```
+
+---
+
+### Task 26: Monthly ZIP export via the share sheet
 
 **Files:**
 - Create: `src/features/clients/downloadMonthZip.ts`
-- Modify: `app/(accountant)/mukellef/[clientId].tsx` (export action)
+- Modify: `app/(accountant)/mukellef/[clientId].tsx`
 - Test: `src/features/clients/__tests__/downloadMonthZip.test.ts`
 
 **Interfaces:**
-- Consumes: `API_URL`, `currentToken` (Tasks 3–4).
-- Produces: `downloadMonthZip(clientId: string, period: string): Promise<void>` — downloads with the Bearer header, then opens the system share sheet. Throws `ApiError(404, …)` when the month is empty so the caller can show an empty-state message instead of an error.
-
-- [ ] **Step 1: Write the failing test**
-
-`src/features/clients/__tests__/downloadMonthZip.test.ts`:
-
-```ts
-import * as FileSystem from "expo-file-system";
-import * as Sharing from "expo-sharing";
-import { downloadMonthZip } from "../downloadMonthZip";
-import { ApiError } from "@/src/api/client";
-
-jest.mock("expo-file-system", () => ({
-  cacheDirectory: "file:///cache/",
-  downloadAsync: jest.fn(),
-}));
-jest.mock("expo-sharing", () => ({
-  isAvailableAsync: jest.fn(async () => true),
-  shareAsync: jest.fn(async () => undefined),
-}));
-jest.mock("@/src/auth/session", () => ({ currentToken: () => "jwt-1" }));
-
-const fs = FileSystem as jest.Mocked<typeof FileSystem>;
-const sharing = Sharing as jest.Mocked<typeof Sharing>;
-
-beforeEach(() => jest.clearAllMocks());
-
-test("downloads with the bearer header and shares the file", async () => {
-  fs.downloadAsync.mockResolvedValue({ status: 200, uri: "file:///cache/f.zip" } as never);
-  await downloadMonthZip("c1", "2026-08");
-  expect(fs.downloadAsync).toHaveBeenCalledWith(
-    expect.stringContaining("/clients/c1/receipts.zip?period=2026-08"),
-    expect.stringContaining("fislik-c1-2026-08.zip"),
-    { headers: { Authorization: "Bearer jwt-1" } },
-  );
-  expect(sharing.shareAsync).toHaveBeenCalledWith("file:///cache/f.zip", expect.anything());
-});
-
-test("reports an empty month as a 404 ApiError", async () => {
-  fs.downloadAsync.mockResolvedValue({ status: 404, uri: "file:///cache/f.zip" } as never);
-  await expect(downloadMonthZip("c1", "2026-08")).rejects.toMatchObject({
-    name: "ApiError",
-    status: 404,
-  });
-  expect(sharing.shareAsync).not.toHaveBeenCalled();
-});
-```
-
-- [ ] **Step 2: Implement**
-
-```bash
-npx expo install expo-sharing
-```
-
-`src/features/clients/downloadMonthZip.ts`:
+- Produces: `downloadMonthZip(clientId, period): Promise<void>` — downloads with the Bearer header via `expo-file-system`, then opens the system share sheet. Throws `ApiError(404, "Bu ay için indirilecek fiş yok")` on an empty month so the caller can show an empty state rather than an error.
 
 ```ts
 import * as FileSystem from "expo-file-system";
@@ -3164,10 +3270,9 @@ import { API_URL, ApiError } from "@/src/api/client";
 import { currentToken } from "@/src/auth/session";
 
 /**
- * Downloads a client's monthly receipt archive and hands it to the system
- * share sheet, which is the native equivalent of the web app's download link.
  * The url cannot carry the token, so the request goes through downloadAsync
- * with an explicit Authorization header.
+ * with an explicit Authorization header — the native equivalent of the web
+ * app's download link.
  */
 export async function downloadMonthZip(clientId: string, period: string): Promise<void> {
   const target = `${FileSystem.cacheDirectory}fislik-${clientId}-${period}.zip`;
@@ -3176,9 +3281,7 @@ export async function downloadMonthZip(clientId: string, period: string): Promis
     target,
     { headers: { Authorization: `Bearer ${currentToken() ?? ""}` } },
   );
-  if (result.status === 404) {
-    throw new ApiError(404, "Bu ay için indirilecek fiş yok");
-  }
+  if (result.status === 404) throw new ApiError(404, "Bu ay için indirilecek fiş yok");
   if (result.status < 200 || result.status >= 300) {
     throw new ApiError(result.status, "Arşiv indirilemedi");
   }
@@ -3192,20 +3295,11 @@ export async function downloadMonthZip(clientId: string, period: string): Promis
 }
 ```
 
-- [ ] **Step 3: Wire the action**
+Tests: downloads with the bearer header and shares the file; a 404 becomes an `ApiError` and does not open the share sheet. Wire an `Arşivi indir` action into the month screen's action bar, showing a `Spinner` while downloading and surfacing failures through `errorMessage(error)`.
 
-Add an `Arşivi indir` button to the client month screen's action bar. It shows a `Spinner` while downloading and surfaces failures with `errorMessage(error)` in an inline `ErrorCard`.
-
-- [ ] **Step 4: Run tests and verify on a device**
-
-Run: `npm test -- src/features/clients && npx tsc --noEmit`
-
-Manual: on both platforms, export a month with receipts and confirm the share sheet opens and the saved archive contains the expected images.
-
-- [ ] **Step 5: Commit**
+Manual, both platforms: export a month with receipts and confirm the share sheet opens with a valid archive.
 
 ```bash
-git add -A
 git commit -m "feat(accountant): export a client's monthly archive to the share sheet"
 ```
 
@@ -3213,188 +3307,57 @@ git commit -m "feat(accountant): export a client's monthly archive to the share 
 
 # Phase 4 — Release
 
-### Task 20: Error boundary and network-aware error copy
+### Task 27: Error boundary and not-found screens
 
-**Files:**
-- Create: `app/+error.tsx` (expo-router error boundary), `app/+not-found.tsx`
-- Modify: `app/_layout.tsx`
-- Test: `app/__tests__/error.test.tsx`
+**Files:** `app/+error.tsx`, `app/+not-found.tsx`; test `app/__tests__/error.test.tsx`.
 
-**Interfaces:**
-- Consumes: `errorMessage` (Task 6), theme components (Task 2).
-- Produces: an `ErrorBoundary` export that expo-router picks up, rendering a recovery screen instead of a blank view.
-
-- [ ] **Step 1: Write the failing test**
-
-`app/__tests__/error.test.tsx`:
-
-```tsx
-import { fireEvent, render, screen } from "@testing-library/react-native";
-import { ErrorBoundary } from "../+error";
-
-test("renders a recovery screen and retries", () => {
-  const retry = jest.fn();
-  render(<ErrorBoundary error={new Error("boom")} retry={retry} />);
-  expect(screen.getByText("Bir şeyler ters gitti")).toBeOnTheScreen();
-  fireEvent.press(screen.getByText("Tekrar dene"));
-  expect(retry).toHaveBeenCalled();
-});
-```
-
-- [ ] **Step 2: Implement**
-
-`app/+error.tsx`:
-
-```tsx
-import { StyleSheet, Text, View } from "react-native";
-import { tokens } from "@/src/theme/tokens";
-import { text } from "@/src/theme/typography";
-import { Button } from "@/src/theme/components/Button";
-
-export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
-  return (
-    <View style={styles.root}>
-      <Text style={text.title}>Bir şeyler ters gitti</Text>
-      <Text style={[text.body, styles.detail]}>{error.message}</Text>
-      <Button title="Tekrar dene" onPress={retry} />
-    </View>
-  );
-}
-
-export default ErrorBoundary;
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    gap: tokens.space(4),
-    alignItems: "center",
-    justifyContent: "center",
-    padding: tokens.space(6),
-    backgroundColor: tokens.color.page,
-  },
-  detail: { color: tokens.color.inkSoft, textAlign: "center" },
-});
-```
-
-`app/+not-found.tsx` renders `Sayfa bulunamadı` with a button back to `/`.
-
-- [ ] **Step 3: Run tests and commit**
-
-Run: `npm test && npx tsc --noEmit`
+`ErrorBoundary` renders `Bir şeyler ters gitti`, the error message, and a `Tekrar dene` button calling `retry`. `+not-found.tsx` renders `Sayfa bulunamadı` with a button back to `/`.
 
 ```bash
-git add -A
 git commit -m "feat: add error boundary and not-found screens"
 ```
 
 ---
 
-### Task 21: Store assets, EAS build and submit configuration
+### Task 28: Store assets, EAS build and submit configuration
 
-**Files:**
-- Create: `assets/icon.png` (1024×1024), `assets/adaptive-icon.png`, `assets/splash.png`
-- Create: `eas.json`
-- Modify: `app.config.ts`
-- Create: `README.md`
+**Files:** `assets/icon.png` (1024×1024), `assets/adaptive-icon.png`, `assets/splash.png`, `eas.json`, `README.md`; modify `app.config.ts`.
 
-**Interfaces:**
-- Produces: `eas build --profile production` and `eas submit` runnable for both platforms.
+Derive the icon from `fislik-web/src/components/FislikMark.tsx` and `public/icons/icon-512.png`: the mark on `#0f766e` for the icon and adaptive foreground (safe area within the inner 66%), on `#e9eeed` for the splash.
 
-- [ ] **Step 1: Produce the assets**
+`eas.json` with three profiles — `development` (dev client, internal, `EXPO_PUBLIC_API_URL=http://localhost:8000`), `preview` (internal, production API), `production` (`autoIncrement`, production API) — plus `submit.production`.
 
-Derive the icon from `fislik-web/src/components/FislikMark.tsx` and `fislik-web/public/icons/icon-512.png`: the mark centred on a `#0f766e` field for `icon.png` and `adaptive-icon.png` (foreground on a transparent background, safe area within the inner 66%), and the mark on `#e9eeed` for `splash.png`.
-
-- [ ] **Step 2: Reference them from the config**
-
-```ts
-  icon: "./assets/icon.png",
-  splash: {
-    image: "./assets/splash.png",
-    resizeMode: "contain",
-    backgroundColor: "#e9eeed",
-  },
-  android: {
-    package: "dev.selamet.fislik",
-    edgeToEdgeEnabled: true,
-    adaptiveIcon: {
-      foregroundImage: "./assets/adaptive-icon.png",
-      backgroundColor: "#0f766e",
-    },
-  },
-```
-
-- [ ] **Step 3: Write `eas.json`**
-
-```json
-{
-  "cli": { "version": ">= 12.0.0", "appVersionSource": "remote" },
-  "build": {
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal",
-      "env": { "EXPO_PUBLIC_API_URL": "http://localhost:8000" }
-    },
-    "preview": {
-      "distribution": "internal",
-      "env": { "EXPO_PUBLIC_API_URL": "https://fislik-api.selamet.dev" }
-    },
-    "production": {
-      "autoIncrement": true,
-      "env": { "EXPO_PUBLIC_API_URL": "https://fislik-api.selamet.dev" }
-    }
-  },
-  "submit": { "production": {} }
-}
-```
-
-- [ ] **Step 4: Write the README**
-
-Cover: prerequisites, `npm install`, `cp .env.example .env`, `npm run gen:api`, `npx expo start`, running against a local API (device on the same network needs the machine's LAN IP in `EXPO_PUBLIC_API_URL`, not `localhost`), `npm test`, `npx tsc --noEmit`, and the EAS build/submit commands per profile. Note the API dependency: fislik-api must have Bearer auth deployed.
-
-- [ ] **Step 5: Build and verify**
-
-Run: `eas build --profile preview --platform all`
-Install both artifacts on real devices and run the manual checklist in Task 22.
-
-- [ ] **Step 6: Commit**
+`README.md` covers: `npm install`, `cp .env.example .env`, `npm run gen:api`, `npx expo start`, the LAN-IP caveat when running a device against a local API, `npm test`, `npx tsc --noEmit`, and the EAS commands. Note that the API must have Bearer auth deployed.
 
 ```bash
-git add -A
 git commit -m "chore: add store assets, EAS build profiles and README"
 ```
 
 ---
 
-### Task 22: Release verification
+### Task 29: Release verification
 
-**Files:**
-- Create: `docs/manual-test-checklist.md`
+**Files:** `docs/manual-test-checklist.md`.
 
-- [ ] **Step 1: Write the checklist**
+Each item, on **both** iOS and Android:
 
-Record it as a document so it can be re-run before every release. Each item, on **both** iOS and Android:
-
-- Register a new client; register an accountant through an invite link.
+- Register a client; accept an accountant invitation from the client side and a client invitation from the accountant side.
 - Log out, log back in, force quit, relaunch — the session survives.
-- Enable biometric unlock, force quit, relaunch — the prompt appears; cancelling offers sign-out; unlocking restores the session.
-- Burst-capture five receipts without leaving the camera; all five appear as `Yükleniyor` and resolve into real receipts.
-- Turn on airplane mode, capture three receipts, force quit, relaunch, turn networking back on — all three upload without intervention.
-- Point the app at an unreachable API and confirm the copy reads `İnternet bağlantısı yok` rather than a server message.
-- Edit an extraction, change a receipt's month, delete a receipt.
-- Upload a PDF from Files.
-- As the accountant: open a client's month, mark one receipt processed, mark all processed, unmark, report an issue, resolve it.
-- Export a month's archive and confirm the share sheet opens with a valid ZIP.
-- Open a `/davet/:token` link from Mail with the app installed and with it uninstalled.
-- Confirm every screen renders correctly at the smallest supported size (iPhone SE) and with the OS font size increased.
+- Enable biometric unlock, force quit, relaunch — the prompt appears; cancelling offers sign-out.
+- Burst-capture five receipts without leaving the camera; all five resolve into real receipts.
+- Airplane mode: capture three, force quit, relaunch, restore networking — all three upload unattended.
+- Point the app at an unreachable API and confirm the copy reads `İnternet bağlantısı yok`.
+- Edit every extraction field including tax id, payment method and category; retry a failed extraction.
+- Upload a PDF from Files and confirm it previews inline.
+- Lock a month as the accountant, then upload as the client and confirm the receipt lands in the next month and both months refresh.
+- Confirm a deferred receipt reads `Bu ayın analiz hakkı doldu…` rather than showing an empty form.
+- As the accountant: mark one processed, mark all, unmark, upload on the client's behalf, report an issue, resolve it, export the archive.
+- Open a `/davet/:token` link from Mail with the app installed and uninstalled.
+- Smallest supported screen (iPhone SE) and an increased OS font size.
 
-- [ ] **Step 2: Run the checklist and fix what it surfaces**
-
-Each fix is its own commit. Do not submit to the stores with any item failing.
-
-- [ ] **Step 3: Commit**
+Each fix is its own commit. Do not submit with any item failing.
 
 ```bash
-git add -A
 git commit -m "docs: add the pre-release manual test checklist"
 ```
 
@@ -3402,15 +3365,21 @@ git commit -m "docs: add the pre-release manual test checklist"
 
 ## Notes for the implementer
 
-**Read before starting any task in Phase 2 or 3:** the corresponding screen in
-`fislik-web/src/pages/`. This plan describes behaviour and copy, but the web app
-is the reference for layout, ordering, and wording. Where they disagree, the web
-app wins for anything user-visible and this plan wins for architecture.
+**Read the corresponding web screen before starting any Phase 2 or 3 task.** This
+plan describes behaviour and copy; `fislik-web/src/pages/` is the reference for
+layout, ordering and wording. Where they disagree, the web app wins for anything
+user-visible and this plan wins for architecture.
 
 **Never hand-write an API payload type.** If a type is missing from
-`src/api/generated/schema.d.ts`, the API does not expose it — check the router,
-and regenerate rather than inventing a shape.
+`src/api/generated/schema.d.ts`, run `npm run gen:api` — do not invent a shape.
 
-**When a test needs a real API,** run fislik-api locally with
-`docker compose up` and point `EXPO_PUBLIC_API_URL` at it. Unit tests never hit
-the network; they mock `@/src/api/endpoints`.
+**The API decides what a locked month means.** It re-files uploads into the next
+open month rather than rejecting them. Never reimplement that rule client-side;
+read the result and refresh both periods.
+
+**`extraction === null` means deferred, not absent.** It is the credit limit, not
+missing data. Say so.
+
+**When a test needs a real API,** run fislik-api locally with `docker compose up`
+and point `EXPO_PUBLIC_API_URL` at it. Unit tests never hit the network; they
+mock `@/src/api/endpoints`.
