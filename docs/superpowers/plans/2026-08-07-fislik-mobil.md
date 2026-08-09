@@ -1169,23 +1169,15 @@ Expected: FAIL — screen module not found.
 
 `src/lib/errors.ts`:
 
-```ts
-import { ApiError, NetworkError } from "@/src/api/client";
-
-/** Turns a thrown value into Turkish copy for the user. Auth failures get a
- *  friendlier message than the API's English detail; everything else trusts
- *  the API, which already answers in Turkish. */
-export function errorMessage(error: unknown): string {
-  if (error instanceof NetworkError) return "İnternet bağlantısı yok";
-  if (error instanceof ApiError) {
-    if (error.status === 401 && error.detail === "Invalid email or password") {
-      return "E-posta veya şifre hatalı";
-    }
-    return error.detail;
-  }
-  return "Beklenmeyen bir hata oluştu";
-}
-```
+**Port `apiErrorMessage` from `fislik-web/src/lib/errors.ts` verbatim** — same
+name, same status map, same `overrides` parameter. Its central rule is that
+`ApiError.detail` is **never** shown to a user: it is backend-authored text, so
+it is logged via `console.error` and the user sees curated Turkish copy chosen
+by status code, with a screen-specific override where one is warranted (login's
+401 becomes `E-posta veya şifre hatalı`). Adapt only the `NetworkError` branch,
+which mobile has and the web does not — it returns the network copy from the
+web's own map. Do not invent a different shape; every screen in both clients
+must fail with the same wording.
 
 `app/(auth)/kayit.tsx` — same shell plus `Ad Soyad` and a role selector (two pill buttons: `Mükellefim` → `client`, `Mali müşavirim` → `accountant`), calling `signUp`.
 
@@ -3309,7 +3301,7 @@ export async function downloadMonthZip(clientId: string, period: string): Promis
 }
 ```
 
-Tests: downloads with the bearer header and shares the file; a 404 becomes an `ApiError` and does not open the share sheet. Wire an `Arşivi indir` action into the month screen's action bar, showing a `Spinner` while downloading and surfacing failures through `errorMessage(error)`.
+Tests: downloads with the bearer header and shares the file; a 404 becomes an `ApiError` and does not open the share sheet. Wire an `Arşivi indir` action into the month screen's action bar, showing a `Spinner` while downloading and surfacing failures through `apiErrorMessage(error)`.
 
 Manual, both platforms: export a month with receipts and confirm the share sheet opens with a valid archive.
 
