@@ -203,6 +203,15 @@ export function fmtTRY(n: number | null | undefined): string {
  * the currency symbol. Verified empirically against Node's `Intl` output
  * (see the Task 15 report) across ordinary, thousands-grouped, negative, and
  * rounding-edge values.
+ *
+ * Known edge case, not a bug to "fix": for a binary float that isn't exactly
+ * representable at the second decimal (e.g. `2.675`, stored as
+ * `2.67499999999999982...`), this `toFixed`-based rounding can differ by one
+ * cent from `Intl.NumberFormat`'s decimal-string rounding (`2,67` vs
+ * `2,68`). Unreachable in practice: `ReviewRow.total`/`vat` come from
+ * `Number()` of API decimal strings already rounded server-side, and
+ * `parseAmountInput`'s regex caps user input at two decimal places, so a
+ * three-decimal value never enters from either direction.
  */
 export function fmtNum(n: number | null | undefined): string {
   if (n === null || n === undefined) return "";

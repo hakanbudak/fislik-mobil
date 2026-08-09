@@ -3,41 +3,45 @@ import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import type { ReceiptOut } from "@/src/api/endpoints";
 import { formatReceiptDay } from "@/src/lib/dates";
 import { formatMoney } from "@/src/lib/money";
-import { ANALYSIS_LABELS, analysisState } from "@/src/lib/receiptReview";
+import { analysisState, mismatchedPeriod } from "@/src/lib/receiptReview";
 import { isPdf } from "@/src/lib/receipts";
 import { Badge } from "@/src/theme/components/Badge";
 import { tokens } from "@/src/theme/tokens";
 import { text } from "@/src/theme/typography";
 
 /**
- * Derives the card's badge (label + tone) from the receipt's canonical
- * `AnalysisState` (`src/lib/receiptReview.ts`, ported from the web app).
+ * Derives the card's analysis badge, mirroring the copy and behaviour of the
+ * web's `ReceiptCard` (`fislik-web/src/components/ReceiptCard.tsx`) exactly
+ * — NOT the canonical `ANALYSIS_LABELS` from `src/lib/receiptReview.ts`.
  *
- * "deferred" and "pending" get the canonical `ANALYSIS_LABELS` text at a
- * neutral tone — nothing is wrong with either, they just haven't produced a
- * result yet. "none" (extraction missing entirely — an old upload predating
- * the AI pipeline) and "failed" both get a warning tone: no analysis is
- * coming on its own for either, so both need the client's attention, even
- * though "none" keeps its own label rather than claiming an analysis
- * "failed" that never ran (see `AnalysisState`'s docstring).
+ * The web has two separate analysis-state vocabularies: `ANALYSIS_LABELS`
+ * drives the accountant's review table, while the receipt card hand-writes
+ * its own copy below. That inconsistency exists in the web today and is
+ * deliberately propagated here rather than "fixed" — the project's rule is
+ * that the web wins screen-by-screen, so this card matches the web's card,
+ * and `ANALYSIS_LABELS` is reserved for wherever the web's review-table
+ * equivalent lands (Task 22).
  *
- * "done" with no `total_amount` is a fifth, card-specific case outside
- * `AnalysisState` proper: the analysis pipeline finished but OCR couldn't
- * read an amount, which the web's `ReceiptCard` also flags with its own
- * "Okunamadı" label instead of treating it as a plain success.
+ * `extraction === undefined` (never analyzed — an upload from before the AI
+ * pipeline existed) deliberately renders NO badge, matching the web exactly.
+ * This is not an oversight: putting a warning marker on every legacy
+ * receipt would be a scary, unearned signal for something that predates
+ * analysis entirely. Do not add one back without re-checking the web card.
  */
 function receiptBadge(receipt: ReceiptOut): { label: string; tone: "neutral" | "warning" } | null {
   const state = analysisState(receipt);
-  if (state === "deferred") return { label: ANALYSIS_LABELS.deferred, tone: "neutral" };
-  if (state === "pending") return { label: ANALYSIS_LABELS.pending, tone: "neutral" };
-  if (state === "failed") return { label: ANALYSIS_LABELS.failed, tone: "warning" };
-  if (state === "none") return { label: ANALYSIS_LABELS.none, tone: "warning" };
-  if (receipt.extraction?.total_amount === null) return { label: "Okunamadı", tone: "warning" };
+  if (state === "pending") return { label: "Analiz ediliyor…", tone: "neutral" };
+  if (state === "deferred") return { label: "Sıraya alındı", tone: "neutral" };
+  if (state === "failed" || receipt.extraction?.total_amount === null) {
+    return { label: "Okunamadı", tone: "warning" };
+  }
+  // state === "none" (extraction undefined) or "done" with an amount: no badge.
   return null;
 }
 
 export function ReceiptCard({ receipt, onPress }: { receipt: ReceiptOut; onPress: () => void }) {
   const analysis = receiptBadge(receipt);
+  const wrongMonth = mismatchedPeriod(receipt.extraction?.receipt_date ?? null, receipt.period);
 
   return (
     <Pressable
@@ -60,6 +64,7 @@ export function ReceiptCard({ receipt, onPress }: { receipt: ReceiptOut; onPress
         {receipt.uploaded_by ? <Badge label="Muhasebeci yükledi" tone="neutral" /> : null}
         {receipt.processed ? <Badge label="İşlendi" tone="success" /> : null}
         {receipt.open_issue ? <Badge label="Sorun var" tone="warning" /> : null}
+        {wrongMonth ? <Badge label="Farklı ay" tone="warning" /> : null}
         {analysis ? <Badge label={analysis.label} tone={analysis.tone} /> : null}
       </View>
       <View style={styles.footer}>
