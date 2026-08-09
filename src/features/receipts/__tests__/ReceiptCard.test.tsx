@@ -89,3 +89,13 @@ test("does not flag a receipt dated within the month it's filed under", () => {
   );
   expect(screen.queryByText("Farklı ay")).toBeNull();
 });
+
+test("shows the KDV line for a done receipt with a known VAT total", () => {
+  render(<ReceiptCard receipt={{ ...base, extraction: { ...doneExtraction, vat_total: "12.55" } }} onPress={jest.fn()} />);
+  expect(screen.getByText("KDV ₺12,55")).toBeOnTheScreen();
+});
+
+test("shows no KDV line when vat_total is null, even though the total is known", () => {
+  render(<ReceiptCard receipt={{ ...base, extraction: { ...doneExtraction, vat_total: null } }} onPress={jest.fn()} />);
+  expect(screen.queryByText(/^KDV /)).toBeNull();
+});

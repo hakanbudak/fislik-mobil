@@ -42,6 +42,13 @@ function receiptBadge(receipt: ReceiptOut): { label: string; tone: "neutral" | "
 export function ReceiptCard({ receipt, onPress }: { receipt: ReceiptOut; onPress: () => void }) {
   const analysis = receiptBadge(receipt);
   const wrongMonth = mismatchedPeriod(receipt.extraction?.receipt_date ?? null, receipt.period);
+  // Mirrors the web card: the KDV line only appears alongside a successfully
+  // read total, and only when vat_total is actually known — a receipt with
+  // a total but no VAT figure shows no KDV line at all, not "KDV —".
+  const vatTotal =
+    receipt.extraction?.status === "done" && receipt.extraction.total_amount !== null
+      ? receipt.extraction.vat_total
+      : null;
 
   return (
     <Pressable
@@ -72,6 +79,7 @@ export function ReceiptCard({ receipt, onPress }: { receipt: ReceiptOut; onPress
           {receipt.extraction?.merchant_name ?? formatReceiptDay(receipt.created_at)}
         </Text>
         <Text style={[text.body, styles.amount]}>{formatMoney(receipt.extraction?.total_amount ?? null)}</Text>
+        {vatTotal !== null ? <Text style={[text.caption, styles.vat]}>{`KDV ${formatMoney(vatTotal)}`}</Text> : null}
       </View>
     </Pressable>
   );
@@ -101,4 +109,5 @@ const styles = StyleSheet.create({
   footer: { padding: tokens.space(2), gap: tokens.space(0.5) },
   merchant: { color: tokens.color.ink },
   amount: { color: tokens.color.inkSoft },
+  vat: { color: tokens.color.inkSoft },
 });
