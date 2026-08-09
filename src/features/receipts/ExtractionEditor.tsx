@@ -42,6 +42,33 @@ function asExpenseCategory(v: string | null): ExpenseCategory {
   return (CATEGORY_KEYS as string[]).includes(v ?? "") ? (v as ExpenseCategory) : "diger";
 }
 
+/** True ISO "YYYY-MM-DD" *and* a real calendar date — rejects both malformed
+ *  shapes ("05.08.2026") and out-of-range dates ("2026-02-31"), which
+ *  `Date`'s lenient parser would otherwise silently roll over into March. */
+function isValidIsoDate(v: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+/**
+ * Two amounts are "the same" if their numeric value matches, regardless of
+ * how many decimals either string spells out. `buildDraft` round-trips every
+ * amount through `fmtNum` (always two decimals) and `computeChanges` parses
+ * it back via `parseAmountInput` (which does NOT re-pad/truncate decimals),
+ * so an untouched field whose API value has a different decimal count (e.g.
+ * `"218.4"`) would otherwise come back as `"218.40"` and read as changed.
+ */
+function amountUnchanged(parsed: string | null, original: string | null): boolean {
+  if (parsed === original) return true;
+  if (parsed === null || original === null) return false;
+  return Number(parsed) === Number(original);
+}
+
 interface Draft {
   merchant: string;
   date: string;
@@ -72,22 +99,51 @@ function buildDraft(extraction: ExtractionOut | null): Draft {
   };
 }
 
+interface ComputeResult {
+  /** Only ever non-empty when `amountError`/`dateError`/`taxIdError` are all
+   *  null — an invalid field aborts the whole save rather than patching
+   *  around it, since the API has no partial-validation story. */
+  patch: ExtractionPatchIn;
+  amountError: string | null;
+  dateError: string | null;
+  taxIdError: string | null;
+}
+
 /**
  * Diffs `draft` against the extraction it was seeded from and returns only
- * the changed fields — sending unchanged fields back would make the API
- * stamp the receipt `edited` even though the accountant/client touched
- * nothing. `vat_breakdown` is read-only here (see the module docstring) and
- * is therefore never part of the diff.
+ * the changed fields — sending unchanged fields back is not just wasted
+ * bandwidth: the API's PATCH unconditionally stamps the receipt `status:
+ * "done"`, clears its error, and sets `edited_by`/`edited_at`, regardless of
+ * what the body contains. On a `pending`/`failed` receipt that silently and
+ * permanently cancels the AI extraction (`retry_extraction` refuses with 409
+ * once `edited_by` is set), so an accidental or false-positive diff is not a
+ * cosmetic bug — it is unrecoverable for that receipt. `vat_breakdown` is
+ * read-only here (see the module docstring) and is therefore never part of
+ * the diff.
  *
  * Amounts go through `parseAmountInput`: `undefined` means unparseable and
- * aborts the whole save (returned as `error`); `null` means the field was
- * cleared and is a legitimate diff value.
+ * aborts the whole save; `null` means the field was cleared and is a
+ * legitimate diff value. `amountUnchanged` guards the comparison against
+ * `parseAmountInput`'s decimal-count round-trip (see its docstring).
  */
-function computeChanges(extraction: ExtractionOut, draft: Draft): { patch: ExtractionPatchIn; error: string | null } {
+function computeChanges(extraction: ExtractionOut, draft: Draft): ComputeResult {
   const total = parseAmountInput(draft.total);
   const vat = parseAmountInput(draft.vat);
-  if (total === undefined || vat === undefined) {
-    return { patch: {}, error: "Geçerli bir tutar girin" };
+  const amountError = total === undefined || vat === undefined ? "Geçerli bir tutar girin" : null;
+
+  const dateTrimmed = draft.date.trim();
+  const dateError =
+    dateTrimmed !== "" && !isValidIsoDate(dateTrimmed) ? "Geçerli bir tarih girin (YYYY-AA-GG)" : null;
+
+  const taxId = draft.taxId.trim();
+  const taxIdDigits = draft.taxType === "tckn" ? 11 : 10;
+  const taxIdError =
+    taxId !== "" && !new RegExp(`^\\d{${taxIdDigits}}$`).test(taxId)
+      ? `${draft.taxType === "tckn" ? "TCKN" : "VKN"} ${taxIdDigits} haneli olmalı`
+      : null;
+
+  if (amountError || dateError || taxIdError) {
+    return { patch: {}, amountError, dateError, taxIdError };
   }
 
   const patch: ExtractionPatchIn = {};
@@ -95,19 +151,24 @@ function computeChanges(extraction: ExtractionOut, draft: Draft): { patch: Extra
   const merchant = draft.merchant.trim() === "" ? null : draft.merchant.trim();
   if (merchant !== (extraction.merchant_name ?? null)) patch.merchant_name = merchant;
 
-  const date = draft.date.trim() === "" ? null : draft.date.trim();
+  const date = dateTrimmed === "" ? null : dateTrimmed;
   if (date !== (extraction.receipt_date ?? null)) patch.receipt_date = date;
 
-  if (total !== (extraction.total_amount ?? null)) patch.total_amount = total;
-  if (vat !== (extraction.vat_total ?? null)) patch.vat_total = vat;
+  if (!amountUnchanged(total as string | null, extraction.total_amount ?? null)) patch.total_amount = total;
+  if (!amountUnchanged(vat as string | null, extraction.vat_total ?? null)) patch.vat_total = vat;
 
   if (draft.docType !== asDocType(extraction.doc_type)) patch.doc_type = draft.docType;
 
-  const taxId = draft.taxId.trim();
   const taxIdValue = taxId === "" ? null : taxId;
   const taxTypeValue = taxId === "" ? null : draft.taxType;
-  if (taxIdValue !== (extraction.merchant_tax_id ?? null)) patch.merchant_tax_id = taxIdValue;
-  if (taxTypeValue !== (extraction.merchant_tax_id_type ?? null)) patch.merchant_tax_id_type = taxTypeValue;
+  // Normalize BOTH sides through `asTaxIdType` — comparing draft.taxType
+  // (already normalized by `buildDraft`) against the raw API value would
+  // report a spurious diff whenever the AI found a tax id but left its type
+  // null, since `asTaxIdType(null)` defaults to `"vkn"` for display.
+  const originalTaxId = extraction.merchant_tax_id ?? null;
+  const originalTaxType = originalTaxId ? asTaxIdType(extraction.merchant_tax_id_type) : null;
+  if (taxIdValue !== originalTaxId) patch.merchant_tax_id = taxIdValue;
+  if (taxTypeValue !== originalTaxType) patch.merchant_tax_id_type = taxTypeValue;
 
   const office = draft.office.trim() === "" ? null : draft.office.trim();
   if (office !== (extraction.merchant_tax_office ?? null)) patch.merchant_tax_office = office;
@@ -118,7 +179,7 @@ function computeChanges(extraction: ExtractionOut, draft: Draft): { patch: Extra
   if (draft.pay !== asPaymentMethod(extraction.payment_method)) patch.payment_method = draft.pay;
   if (draft.category !== asExpenseCategory(extraction.expense_category)) patch.expense_category = draft.category;
 
-  return { patch, error: null };
+  return { patch, amountError: null, dateError: null, taxIdError: null };
 }
 
 /** A row of always-visible pill options — used for the three- (or two-)
@@ -234,7 +295,9 @@ export function ExtractionEditor({
   readOnly?: boolean;
 }) {
   const [draft, setDraft] = useState<Draft>(() => buildDraft(extraction));
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [amountError, setAmountError] = useState<string | null>(null);
+  const [dateError, setDateError] = useState<string | null>(null);
+  const [taxIdError, setTaxIdError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -242,18 +305,31 @@ export function ExtractionEditor({
     setDraft((prev) => ({ ...prev, [key]: value }));
   }
 
+  // A no-op PATCH is not merely wasteful — the API unconditionally stamps
+  // the receipt `edited` and flips a pending/failed extraction to `done`
+  // regardless of body contents (see `computeChanges`'s docstring), so
+  // Kaydet must be unreachable whenever nothing has actually changed. An
+  // active validation error still counts as "changed": the only way a field
+  // seeded from `buildDraft` can be invalid is if the user edited it away
+  // from the always-valid value the API returned.
+  const preview =
+    extraction && extraction.status !== "pending" ? computeChanges(extraction, draft) : null;
+  const hasChanges =
+    !!preview &&
+    (Object.keys(preview.patch).length > 0 || !!preview.amountError || !!preview.dateError || !!preview.taxIdError);
+
   async function handleSave() {
     if (!extraction) return;
-    const { patch, error } = computeChanges(extraction, draft);
-    if (error) {
-      setValidationError(error);
-      return;
-    }
-    setValidationError(null);
+    const result = computeChanges(extraction, draft);
+    setAmountError(result.amountError);
+    setDateError(result.dateError);
+    setTaxIdError(result.taxIdError);
+    if (result.amountError || result.dateError || result.taxIdError) return;
+    if (Object.keys(result.patch).length === 0) return;
     setSaveError(null);
     setSaving(true);
     try {
-      await onSave(patch);
+      await onSave(result.patch);
     } catch (err) {
       setSaveError(apiErrorMessage(err));
     } finally {
@@ -317,6 +393,7 @@ export function ExtractionEditor({
               editable={!disabled}
               keyboardType="number-pad"
               maxLength={11}
+              error={taxIdError ?? undefined}
               onChangeText={(v) => set("taxId", v)}
             />
           </View>
@@ -334,7 +411,13 @@ export function ExtractionEditor({
         <Text style={[text.label, styles.sectionTitle]}>Fiş bilgileri</Text>
         <View style={styles.row}>
           <View style={styles.rowItem}>
-            <Input label="Tarih" value={draft.date} editable={!disabled} onChangeText={(v) => set("date", v)} />
+            <Input
+              label="Tarih"
+              value={draft.date}
+              editable={!disabled}
+              error={dateError ?? undefined}
+              onChangeText={(v) => set("date", v)}
+            />
           </View>
           <View style={styles.rowItem}>
             <Input
@@ -403,12 +486,12 @@ export function ExtractionEditor({
         <CategoryField value={draft.category} onChange={(v) => set("category", v)} disabled={disabled} />
       </Card>
 
-      {validationError || saveError ? (
-        <Text style={[text.caption, styles.error]}>{validationError ?? saveError}</Text>
+      {amountError || saveError ? (
+        <Text style={[text.caption, styles.error]}>{amountError ?? saveError}</Text>
       ) : null}
 
       {!readOnly ? (
-        <Button title="Kaydet" onPress={handleSave} loading={saving} />
+        <Button title="Kaydet" onPress={handleSave} loading={saving} disabled={!hasChanges} />
       ) : null}
     </ScrollView>
   );

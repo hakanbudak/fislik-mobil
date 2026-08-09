@@ -89,3 +89,78 @@ test("disables editing when the month is locked", () => {
   );
   expect(screen.queryByText("Kaydet")).toBeNull();
 });
+
+// Regression: any PATCH — even an empty one — makes the API permanently
+// stamp the receipt hand-edited and blocks retrying a failed/pending
+// extraction forever, so a no-op Kaydet press must never reach onSave.
+test("disables Kaydet and skips onSave when nothing changed", () => {
+  const onSave = jest.fn();
+  render(<ExtractionEditor extraction={extraction} onSave={onSave} onRetry={jest.fn()} />);
+  expect(screen.getByLabelText("Kaydet")).toBeDisabled();
+  fireEvent.press(screen.getByLabelText("Kaydet"));
+  expect(onSave).not.toHaveBeenCalled();
+});
+
+// Regression: merchant_tax_id_type must compare normalized-vs-normalized,
+// like every other selector, or a receipt where the AI found a tax id but
+// left the type null reports a spurious diff on an untouched field.
+test("does not report a tax-id-type diff when the type was never edited", async () => {
+  const onSave = jest.fn().mockResolvedValue(undefined);
+  const withNullType = { ...extraction, merchant_tax_id: "1234567890", merchant_tax_id_type: null };
+  render(<ExtractionEditor extraction={withNullType} onSave={onSave} onRetry={jest.fn()} />);
+  fireEvent.changeText(screen.getByLabelText("Satıcı"), "Migros Jet");
+  fireEvent.press(screen.getByText("Kaydet"));
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({ merchant_name: "Migros Jet" }));
+});
+
+// Regression: buildDraft formats amounts to two decimals and computeChanges
+// re-parses them; an untouched field must never round-trip into a spurious
+// diff regardless of how many decimals the API originally sent.
+test.each(["218.4", "218.40"])(
+  "does not report a spurious amount diff when total_amount is untouched ('%s')",
+  async (totalAmount) => {
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    const withAmount = { ...extraction, total_amount: totalAmount };
+    render(<ExtractionEditor extraction={withAmount} onSave={onSave} onRetry={jest.fn()} />);
+    fireEvent.changeText(screen.getByLabelText("Satıcı"), "Migros Jet");
+    fireEvent.press(screen.getByText("Kaydet"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ merchant_name: "Migros Jet" }));
+  },
+);
+
+test("rejects a malformed date instead of sending it", () => {
+  const onSave = jest.fn();
+  render(<ExtractionEditor extraction={extraction} onSave={onSave} onRetry={jest.fn()} />);
+  fireEvent.changeText(screen.getByLabelText("Tarih"), "05.08.2026");
+  fireEvent.press(screen.getByText("Kaydet"));
+  expect(screen.getByText("Geçerli bir tarih girin (YYYY-AA-GG)")).toBeOnTheScreen();
+  expect(onSave).not.toHaveBeenCalled();
+});
+
+test("rejects a calendar-invalid date instead of sending it", () => {
+  const onSave = jest.fn();
+  render(<ExtractionEditor extraction={extraction} onSave={onSave} onRetry={jest.fn()} />);
+  fireEvent.changeText(screen.getByLabelText("Tarih"), "2026-02-31");
+  fireEvent.press(screen.getByText("Kaydet"));
+  expect(screen.getByText("Geçerli bir tarih girin (YYYY-AA-GG)")).toBeOnTheScreen();
+  expect(onSave).not.toHaveBeenCalled();
+});
+
+test("rejects a VKN that isn't 10 digits", () => {
+  const onSave = jest.fn();
+  render(<ExtractionEditor extraction={extraction} onSave={onSave} onRetry={jest.fn()} />);
+  fireEvent.changeText(screen.getByLabelText("VKN/TCKN"), "12345");
+  fireEvent.press(screen.getByText("Kaydet"));
+  expect(screen.getByText("VKN 10 haneli olmalı")).toBeOnTheScreen();
+  expect(onSave).not.toHaveBeenCalled();
+});
+
+test("rejects a TCKN that isn't 11 digits", () => {
+  const onSave = jest.fn();
+  const tcknExtraction = { ...extraction, merchant_tax_id_type: "tckn" as const };
+  render(<ExtractionEditor extraction={tcknExtraction} onSave={onSave} onRetry={jest.fn()} />);
+  fireEvent.changeText(screen.getByLabelText("VKN/TCKN"), "123456789");
+  fireEvent.press(screen.getByText("Kaydet"));
+  expect(screen.getByText("TCKN 11 haneli olmalı")).toBeOnTheScreen();
+  expect(onSave).not.toHaveBeenCalled();
+});
