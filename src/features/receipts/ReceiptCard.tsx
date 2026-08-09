@@ -3,34 +3,41 @@ import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import type { ReceiptOut } from "@/src/api/endpoints";
 import { formatReceiptDay } from "@/src/lib/dates";
 import { formatMoney } from "@/src/lib/money";
+import { ANALYSIS_LABELS, analysisState } from "@/src/lib/receiptReview";
 import { isPdf } from "@/src/lib/receipts";
 import { Badge } from "@/src/theme/components/Badge";
 import { tokens } from "@/src/theme/tokens";
 import { text } from "@/src/theme/typography";
 
 /**
- * Derives a short analysis-state label from `receipt.extraction`. Ported
- * inline from fislik-web/src/components/ReceiptCard.tsx — Task 15 promotes
- * this to a shared `analysisState` helper in `src/lib/receipts.ts`.
+ * Derives the card's badge (label + tone) from the receipt's canonical
+ * `AnalysisState` (`src/lib/receiptReview.ts`, ported from the web app).
  *
- * `extraction === null` means the month's analysis-credit balance was
- * exhausted at upload time, so the receipt is DEFERRED to next month's
- * analysis run — distinct from `status === "pending"` (analysis actively
- * running) and from a missing/legacy `extraction` (`undefined`, no badge).
+ * "deferred" and "pending" get the canonical `ANALYSIS_LABELS` text at a
+ * neutral tone — nothing is wrong with either, they just haven't produced a
+ * result yet. "none" (extraction missing entirely — an old upload predating
+ * the AI pipeline) and "failed" both get a warning tone: no analysis is
+ * coming on its own for either, so both need the client's attention, even
+ * though "none" keeps its own label rather than claiming an analysis
+ * "failed" that never ran (see `AnalysisState`'s docstring).
+ *
+ * "done" with no `total_amount` is a fifth, card-specific case outside
+ * `AnalysisState` proper: the analysis pipeline finished but OCR couldn't
+ * read an amount, which the web's `ReceiptCard` also flags with its own
+ * "Okunamadı" label instead of treating it as a plain success.
  */
-function analysisLabel(receipt: ReceiptOut): { label: string; tone: "neutral" | "warning" } | null {
-  const extraction = receipt.extraction;
-  if (extraction === null) return { label: "Sıraya alındı", tone: "neutral" };
-  if (extraction === undefined) return null;
-  if (extraction.status === "pending") return { label: "Analiz ediliyor", tone: "neutral" };
-  if (extraction.status === "failed" || (extraction.status === "done" && extraction.total_amount === null)) {
-    return { label: "Okunamadı", tone: "warning" };
-  }
+function receiptBadge(receipt: ReceiptOut): { label: string; tone: "neutral" | "warning" } | null {
+  const state = analysisState(receipt);
+  if (state === "deferred") return { label: ANALYSIS_LABELS.deferred, tone: "neutral" };
+  if (state === "pending") return { label: ANALYSIS_LABELS.pending, tone: "neutral" };
+  if (state === "failed") return { label: ANALYSIS_LABELS.failed, tone: "warning" };
+  if (state === "none") return { label: ANALYSIS_LABELS.none, tone: "warning" };
+  if (receipt.extraction?.total_amount === null) return { label: "Okunamadı", tone: "warning" };
   return null;
 }
 
 export function ReceiptCard({ receipt, onPress }: { receipt: ReceiptOut; onPress: () => void }) {
-  const analysis = analysisLabel(receipt);
+  const analysis = receiptBadge(receipt);
 
   return (
     <Pressable
