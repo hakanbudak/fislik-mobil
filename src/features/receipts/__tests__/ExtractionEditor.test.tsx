@@ -101,6 +101,23 @@ test("disables Kaydet and skips onSave when nothing changed", () => {
   expect(onSave).not.toHaveBeenCalled();
 });
 
+// The test above can pass purely because a disabled Pressable swallows
+// fireEvent.press — it never actually proves handleSave's own emptiness
+// check runs. `UNSAFE_getByProps` reaches the Pressable's `onPress` prop
+// directly (bypassing RN's disabled-touch gating entirely, unlike
+// fireEvent.press), so this calls handleSave exactly as if the button were
+// enabled — independent of `disabled={!hasChanges}`. If someone later makes
+// Kaydet always-enabled (a plausible "let validation errors surface"
+// change), this is what still stands between a reflex tap and a receipt
+// that can never be re-analyzed.
+test("handleSave's own guard refuses an empty patch, independent of the button's disabled state", () => {
+  const onSave = jest.fn();
+  render(<ExtractionEditor extraction={extraction} onSave={onSave} onRetry={jest.fn()} />);
+  const button = screen.UNSAFE_getByProps({ accessibilityLabel: "Kaydet" });
+  button.props.onPress();
+  expect(onSave).not.toHaveBeenCalled();
+});
+
 // Regression: merchant_tax_id_type must compare normalized-vs-normalized,
 // like every other selector, or a receipt where the AI found a tax id but
 // left the type null reports a spurious diff on an untouched field.
