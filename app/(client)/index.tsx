@@ -1,13 +1,15 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Camera } from "lucide-react-native";
 import { useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { ApiError } from "@/src/api/client";
 import {
+  getSubmissionState,
   listReceipts,
   periodLockStatus,
   receiptsSummary,
+  submitReceipts,
   type PeriodLockOut,
   type ReceiptOut,
 } from "@/src/api/endpoints";
@@ -15,11 +17,13 @@ import { queryKeys } from "@/src/api/queryKeys";
 import { MonthSummaryCard } from "@/src/features/receipts/MonthSummaryCard";
 import { QueuedReceiptCard } from "@/src/features/receipts/QueuedReceiptCard";
 import { ReceiptCard } from "@/src/features/receipts/ReceiptCard";
+import { SubmissionRow } from "@/src/features/receipts/SubmissionRow";
 import { currentPeriod } from "@/src/lib/period";
 import { EmptyState } from "@/src/theme/components/EmptyState";
 import { ErrorCard } from "@/src/theme/components/ErrorCard";
 import { MonthPicker } from "@/src/theme/components/MonthPicker";
 import { Spinner } from "@/src/theme/components/Spinner";
+import { Toast } from "@/src/theme/components/Toast";
 import { tokens } from "@/src/theme/tokens";
 import { text } from "@/src/theme/typography";
 import { useUploadQueue } from "@/src/upload/useUploadQueue";
@@ -29,7 +33,9 @@ type Row = { key: string } & ({ kind: "queued"; record: QueueRecord } | { kind: 
 
 export default function HomeScreen() {
   const [period, setPeriod] = useState(currentPeriod());
+  const [toast, setToast] = useState<string | null>(null);
   const { queued, retry, discard } = useUploadQueue(period);
+  const queryClient = useQueryClient();
 
   const receiptsQuery = useQuery({
     queryKey: queryKeys.receipts(period),
@@ -61,8 +67,25 @@ export default function HomeScreen() {
   });
   const monthLocked = lockQuery.data?.locked === true;
 
-  // TODO(Task 13): submission-to-accountant row (getSubmissionState /
-  // submitReceipts) goes here, between the month picker and this notice.
+  const submissionQuery = useQuery({
+    queryKey: queryKeys.submission(period),
+    queryFn: () => getSubmissionState(period),
+    retry: false,
+  });
+
+  // The shared `errorMessage` helper (src/lib/errors.ts) is owed by Task 6's
+  // auth work, which hasn't landed on this branch yet — until then, an
+  // ApiError's Turkish `detail` is shown as-is.
+  const submitMutation = useMutation({
+    mutationFn: () => submitReceipts(period),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.submission(period) });
+      setToast("Muhasebeciye gönderildi");
+    },
+    onError: (error) => {
+      setToast(error instanceof ApiError ? error.detail : "Beklenmeyen bir hata oluştu");
+    },
+  });
 
   const receipts = receiptsQuery.data ?? [];
   const rows: Row[] = [
@@ -75,6 +98,14 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <MonthPicker value={period} onChange={setPeriod} />
       </View>
+
+      {submissionQuery.data ? (
+        <SubmissionRow
+          state={submissionQuery.data}
+          onSubmit={() => submitMutation.mutate()}
+          busy={submitMutation.isPending}
+        />
+      ) : null}
 
       {monthLocked ? (
         <View style={styles.notice}>
@@ -124,6 +155,8 @@ export default function HomeScreen() {
       >
         <Camera color={tokens.color.onPrimary} size={24} />
       </Pressable>
+
+      <Toast message={toast} onHide={() => setToast(null)} />
     </View>
   );
 }

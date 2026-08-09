@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react-native";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import HomeScreen from "../index";
 import * as endpoints from "@/src/api/endpoints";
 
@@ -71,6 +71,22 @@ test("warns when the month is locked", async () => {
   await waitFor(() =>
     expect(screen.getByText(/Bu ay muhasebeciniz tarafından kapatıldı/)).toBeOnTheScreen(),
   );
+});
+
+test("submits the current period when the send button is pressed", async () => {
+  mocked.receiptsSummary.mockResolvedValue(summary as never);
+  mocked.listReceipts.mockResolvedValue([]);
+  mocked.submitReceipts.mockResolvedValue({
+    last_sent_at: "2026-08-10T12:00:00Z",
+    can_send: false,
+    active_receipt_count: 2,
+    has_accountant: true,
+  });
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("Muhasebeciye gönder")).toBeOnTheScreen());
+  fireEvent.press(screen.getByText("Muhasebeciye gönder"));
+  const [selectedPeriod] = mocked.getSubmissionState.mock.calls[0];
+  await waitFor(() => expect(mocked.submitReceipts).toHaveBeenCalledWith(selectedPeriod));
 });
 
 test("treats a 404 from the lock endpoint as not locked", async () => {
