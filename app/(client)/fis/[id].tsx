@@ -103,7 +103,15 @@ export default function ReceiptDetailScreen() {
   const retryMutation = useMutation({
     mutationFn: () => retryExtraction(id),
     onSuccess: () => invalidatePeriod(period),
-    onError: (error) => setToast(apiErrorMessage(error)),
+    // The API 409s retry on a receipt whose extraction was hand-edited
+    // (Task 16 made accidental edits much harder, so this now almost always
+    // reflects a genuine earlier edit, not a repeated retry). The generic
+    // "Bu işlem zaten yapılmış." default would tell the user they already
+    // retried, which is wrong and doesn't explain why retry is unavailable.
+    onError: (error) =>
+      setToast(
+        apiErrorMessage(error, { 409: "Bu fiş elle düzenlendiği için yeniden analiz edilemez." }),
+      ),
   });
 
   const deleteMutation = useMutation({

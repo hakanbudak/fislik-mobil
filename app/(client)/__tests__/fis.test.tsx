@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import ReceiptDetailScreen from "../fis/[id]";
+import { ApiError } from "@/src/api/client";
 import * as endpoints from "@/src/api/endpoints";
 import type { ReceiptOut } from "@/src/api/endpoints";
 
@@ -108,6 +109,20 @@ test("changing the period invalidates both the old and new month", async () => {
   fireEvent.press(screen.getByLabelText("Önceki ay"));
   fireEvent.press(screen.getByText("Onayla"));
   await waitFor(() => expect(mocked.changePeriod).toHaveBeenCalledWith("r1", "2026-07"));
+});
+
+test("shows a specific message when retry 409s because the receipt was hand-edited", async () => {
+  mocked.listReceipts.mockResolvedValue([
+    { ...baseReceipt, extraction: { ...extraction, status: "failed" } },
+  ]);
+  mocked.retryExtraction.mockRejectedValue(new ApiError(409, "Extraction was manually edited"));
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("Yeniden dene")).toBeOnTheScreen());
+  fireEvent.press(screen.getByText("Yeniden dene"));
+  await waitFor(() =>
+    expect(screen.getByText("Bu fiş elle düzenlendiği için yeniden analiz edilemez.")).toBeOnTheScreen(),
+  );
+  expect(screen.queryByText("Bu işlem zaten yapılmış.")).toBeNull();
 });
 
 test("shows the open-issue card when the receipt has one", async () => {

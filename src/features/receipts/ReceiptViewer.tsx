@@ -1,12 +1,37 @@
-import { useRef } from "react";
-import { Animated, StyleSheet } from "react-native";
+import { useRef, useState } from "react";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { PinchGestureHandler, State, type PinchGestureHandlerStateChangeEvent } from "react-native-gesture-handler";
 import { WebView } from "react-native-webview";
+// Not re-exported from the package's top-level `index.d.ts` (only
+// `FileDownload`/`WebViewMessageEvent`/`WebViewNavigation` are); the
+// subpath import is the only way to name these event types.
+import type { WebViewErrorEvent, WebViewHttpErrorEvent } from "react-native-webview/lib/WebViewTypes";
 import { isPdf } from "@/src/lib/receipts";
 import { tokens } from "@/src/theme/tokens";
+import { text } from "@/src/theme/typography";
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 4;
+
+/**
+ * Shown in place of the image/PDF when it fails to load. Worded around the
+ * likely cause (a stale, time-limited R2 presigned URL — `presign_get`
+ * issues them with a 1-hour `ExpiresIn`, and a screen left open past that,
+ * or a cached list rendered while offline, can hold an expired one) rather
+ * than implying the file itself is damaged. "Tekrar dene" just retries the
+ * same URL — see this task's brief: reloading a *new* URL from the API is a
+ * wider design question this task deliberately leaves alone.
+ */
+function LoadFailure({ onRetry }: { onRetry: () => void }) {
+  return (
+    <View style={styles.failure}>
+      <Text style={[text.body, styles.failureText]}>Fiş yüklenemedi, tekrar deneyin.</Text>
+      <Pressable accessibilityRole="button" onPress={onRetry} style={styles.retryButton}>
+        <Text style={[text.label, styles.retryText]}>Tekrar dene</Text>
+      </Pressable>
+    </View>
+  );
+}
 
 /**
  * Full-bleed receipt view: a pinch-zoomable image for photos, or an inline
@@ -29,6 +54,17 @@ export function ReceiptViewer({ receipt }: { receipt: { image_url: string; conte
   const committedScale = useRef(MIN_SCALE);
   const scale = Animated.multiply(baseScale, pinchScale);
 
+  // Neither WebView nor Image retry on their own once they've errored, so a
+  // "failed" flag plus an `attempt` counter (bumped into the `key`, forcing
+  // a full remount) is what makes "Tekrar dene" actually re-issue the
+  // request instead of statically re-rendering the same failed element.
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  function retry() {
+    setFailed(false);
+    setAttempt((a) => a + 1);
+  }
+
   const onGestureEvent = Animated.event([{ nativeEvent: { scale: pinchScale } }], { useNativeDriver: true });
 
   function onHandlerStateChange(event: PinchGestureHandlerStateChangeEvent) {
@@ -41,17 +77,35 @@ export function ReceiptViewer({ receipt }: { receipt: { image_url: string; conte
   }
 
   if (isPdf(receipt)) {
-    return <WebView source={{ uri: receipt.image_url }} style={styles.fill} originWhitelist={["*"]} />;
+    if (failed) {
+      return <LoadFailure onRetry={retry} />;
+    }
+    return (
+      <WebView
+        key={attempt}
+        source={{ uri: receipt.image_url }}
+        style={styles.fill}
+        originWhitelist={["*"]}
+        onError={(_event: WebViewErrorEvent) => setFailed(true)}
+        onHttpError={(_event: WebViewHttpErrorEvent) => setFailed(true)}
+      />
+    );
+  }
+
+  if (failed) {
+    return <LoadFailure onRetry={retry} />;
   }
 
   return (
     <PinchGestureHandler onGestureEvent={onGestureEvent} onHandlerStateChange={onHandlerStateChange}>
       <Animated.View style={styles.wrap}>
         <Animated.Image
+          key={attempt}
           accessibilityLabel="Fiş görseli"
           source={{ uri: receipt.image_url }}
           resizeMode="contain"
           style={[styles.image, { transform: [{ scale }] }]}
+          onError={() => setFailed(true)}
         />
       </Animated.View>
     </PinchGestureHandler>
@@ -62,4 +116,22 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   wrap: { flex: 1, backgroundColor: tokens.color.surface, overflow: "hidden" },
   image: { width: "100%", height: "100%" },
+  failure: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: tokens.space(3),
+    backgroundColor: tokens.color.surface,
+    padding: tokens.space(4),
+  },
+  failureText: { color: tokens.color.ink, textAlign: "center" },
+  retryButton: {
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: tokens.color.border,
+    backgroundColor: tokens.color.card,
+    paddingHorizontal: tokens.space(4),
+    paddingVertical: tokens.space(2),
+  },
+  retryText: { color: tokens.color.ink },
 });
