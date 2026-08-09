@@ -1,0 +1,84 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor } from "@testing-library/react-native";
+import HomeScreen from "../index";
+import * as endpoints from "@/src/api/endpoints";
+
+jest.mock("@/src/api/endpoints");
+jest.mock("expo-router", () => ({ router: { push: jest.fn() }, Link: ({ children }: never) => children }));
+jest.mock("@/src/upload/useUploadQueue", () => ({
+  useUploadQueue: () => ({ queued: [], retry: jest.fn(), discard: jest.fn() }),
+}));
+
+const mocked = endpoints as jest.Mocked<typeof endpoints>;
+
+const summary = {
+  receipt_count: 2,
+  analyzed_count: 2,
+  total_amount: "1234.50",
+  vat_total: "185.18",
+  vat_by_rate: { "20": "185.18" },
+};
+
+function renderScreen() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <HomeScreen />
+    </QueryClientProvider>,
+  );
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mocked.periodLockStatus.mockResolvedValue({ locked: false, locked_at: null });
+  mocked.getSubmissionState.mockResolvedValue({
+    last_sent_at: null,
+    can_send: true,
+    active_receipt_count: 2,
+    has_accountant: true,
+  });
+});
+
+test("shows the monthly summary and the receipts", async () => {
+  mocked.receiptsSummary.mockResolvedValue(summary as never);
+  mocked.listReceipts.mockResolvedValue([
+    {
+      id: "r1",
+      period: "2026-08",
+      created_at: "2026-08-05T10:00:00Z",
+      image_url: "https://r2/r1.jpg",
+      processed: false,
+      open_issue: null,
+      uploaded_by: null,
+    },
+  ] as never);
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("₺1.234,50")).toBeOnTheScreen());
+});
+
+test("shows an empty state when the month has no receipts", async () => {
+  mocked.receiptsSummary.mockResolvedValue({ ...summary, receipt_count: 0, total_amount: "0" } as never);
+  mocked.listReceipts.mockResolvedValue([]);
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("Bu ay için henüz fiş yok")).toBeOnTheScreen());
+});
+
+test("warns when the month is locked", async () => {
+  mocked.periodLockStatus.mockResolvedValue({ locked: true, locked_at: "2026-09-01T00:00:00Z" });
+  mocked.receiptsSummary.mockResolvedValue(summary as never);
+  mocked.listReceipts.mockResolvedValue([]);
+  renderScreen();
+  await waitFor(() =>
+    expect(screen.getByText(/Bu ay muhasebeciniz tarafından kapatıldı/)).toBeOnTheScreen(),
+  );
+});
+
+test("treats a 404 from the lock endpoint as not locked", async () => {
+  const { ApiError } = jest.requireActual("@/src/api/client");
+  mocked.periodLockStatus.mockRejectedValue(new ApiError(404, "Not Found"));
+  mocked.receiptsSummary.mockResolvedValue(summary as never);
+  mocked.listReceipts.mockResolvedValue([]);
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("Bu ay için henüz fiş yok")).toBeOnTheScreen());
+  expect(screen.queryByText(/kapatıldı/)).toBeNull();
+});

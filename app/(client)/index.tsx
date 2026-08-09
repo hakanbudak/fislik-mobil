@@ -1,0 +1,157 @@
+import { useQuery } from "@tanstack/react-query";
+import { router } from "expo-router";
+import { Camera } from "lucide-react-native";
+import { useState } from "react";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { ApiError } from "@/src/api/client";
+import {
+  listReceipts,
+  periodLockStatus,
+  receiptsSummary,
+  type PeriodLockOut,
+  type ReceiptOut,
+} from "@/src/api/endpoints";
+import { queryKeys } from "@/src/api/queryKeys";
+import { MonthSummaryCard } from "@/src/features/receipts/MonthSummaryCard";
+import { QueuedReceiptCard } from "@/src/features/receipts/QueuedReceiptCard";
+import { ReceiptCard } from "@/src/features/receipts/ReceiptCard";
+import { currentPeriod } from "@/src/lib/period";
+import { EmptyState } from "@/src/theme/components/EmptyState";
+import { ErrorCard } from "@/src/theme/components/ErrorCard";
+import { MonthPicker } from "@/src/theme/components/MonthPicker";
+import { Spinner } from "@/src/theme/components/Spinner";
+import { tokens } from "@/src/theme/tokens";
+import { text } from "@/src/theme/typography";
+import { useUploadQueue } from "@/src/upload/useUploadQueue";
+import type { QueueRecord } from "@/src/upload/queue";
+
+type Row = { key: string } & ({ kind: "queued"; record: QueueRecord } | { kind: "receipt"; receipt: ReceiptOut });
+
+export default function HomeScreen() {
+  const [period, setPeriod] = useState(currentPeriod());
+  const { queued, retry, discard } = useUploadQueue(period);
+
+  const receiptsQuery = useQuery({
+    queryKey: queryKeys.receipts(period),
+    queryFn: () => listReceipts(period),
+    retry: false,
+  });
+
+  const summaryQuery = useQuery({
+    queryKey: queryKeys.summary(period),
+    queryFn: () => receiptsSummary(period),
+    retry: false,
+  });
+
+  // A 404 means this API predates the endpoint — that must read as "not
+  // locked" rather than break the receipt list below.
+  const lockQuery = useQuery({
+    queryKey: queryKeys.periodLock(period),
+    queryFn: async (): Promise<PeriodLockOut> => {
+      try {
+        return await periodLockStatus(period);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+          return { locked: false, locked_at: null };
+        }
+        throw error;
+      }
+    },
+    retry: false,
+  });
+  const monthLocked = lockQuery.data?.locked === true;
+
+  // TODO(Task 13): submission-to-accountant row (getSubmissionState /
+  // submitReceipts) goes here, between the month picker and this notice.
+
+  const receipts = receiptsQuery.data ?? [];
+  const rows: Row[] = [
+    ...queued.map((record) => ({ key: `q-${record.id}`, kind: "queued" as const, record })),
+    ...receipts.map((receipt) => ({ key: `r-${receipt.id}`, kind: "receipt" as const, receipt })),
+  ];
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <MonthPicker value={period} onChange={setPeriod} />
+      </View>
+
+      {monthLocked ? (
+        <View style={styles.notice}>
+          <Text style={[text.caption, styles.noticeText]}>
+            Bu ay muhasebeciniz tarafından kapatıldı. Yeni yüklemeler bir sonraki aya kaydedilir.
+          </Text>
+        </View>
+      ) : null}
+
+      {summaryQuery.data ? <MonthSummaryCard summary={summaryQuery.data} /> : null}
+      {summaryQuery.isError ? (
+        <ErrorCard message="Özet yüklenemedi" onRetry={() => summaryQuery.refetch()} />
+      ) : null}
+
+      {receiptsQuery.isLoading ? (
+        <Spinner />
+      ) : receiptsQuery.isError ? (
+        <ErrorCard message="Fişler yüklenemedi" onRetry={() => receiptsQuery.refetch()} />
+      ) : rows.length === 0 ? (
+        <EmptyState title="Bu ay için henüz fiş yok" description="Kameraya dokunarak ilk fişini ekle." />
+      ) : (
+        <FlatList
+          data={rows}
+          keyExtractor={(row) => row.key}
+          numColumns={2}
+          contentContainerStyle={styles.list}
+          renderItem={({ item }) =>
+            item.kind === "queued" ? (
+              <QueuedReceiptCard
+                record={item.record}
+                onRetry={() => retry(item.record.id)}
+                onDiscard={() => discard(item.record.id)}
+              />
+            ) : (
+              // Detail view arrives with a later task; tapping is a no-op for now.
+              <ReceiptCard receipt={item.receipt} onPress={() => {}} />
+            )
+          }
+        />
+      )}
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Fiş çek"
+        style={styles.fab}
+        onPress={() => router.push("/(client)/kamera")}
+      >
+        <Camera color={tokens.color.onPrimary} size={24} />
+      </Pressable>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: tokens.color.page, padding: tokens.space(3), gap: tokens.space(3) },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  notice: {
+    backgroundColor: `${tokens.color.warning}1A`,
+    borderRadius: tokens.radius.md,
+    padding: tokens.space(2.5),
+  },
+  noticeText: { color: tokens.color.ink },
+  list: { paddingBottom: tokens.space(20) },
+  fab: {
+    position: "absolute",
+    right: tokens.space(4),
+    bottom: tokens.space(4),
+    width: 56,
+    height: 56,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: tokens.color.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: tokens.color.ink,
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+});

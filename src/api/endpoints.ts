@@ -3,6 +3,9 @@ import type { components } from "./generated/schema";
 
 export type UploadOut = components["schemas"]["UploadOut"];
 export type ReceiptOut = components["schemas"]["ReceiptOut"];
+export type SummaryOut = components["schemas"]["SummaryOut"];
+export type PeriodLockOut = components["schemas"]["PeriodLockOut"];
+export type SubmissionStateOut = components["schemas"]["SubmissionStateOut"];
 
 /**
  * Step 1 of the upload handshake: reserves a receipt row and a presigned R2
@@ -27,5 +30,45 @@ export function completeUpload(receiptId: string, data: { size_bytes?: number })
   return apiFetch<ReceiptOut>(`/receipts/${receiptId}/complete`, {
     method: "POST",
     body: JSON.stringify(data),
+  });
+}
+
+export function listReceipts(period: string): Promise<ReceiptOut[]> {
+  return apiFetch<ReceiptOut[]>(`/receipts?period=${encodeURIComponent(period)}`);
+}
+
+export function receiptsSummary(period: string, clientId?: string): Promise<SummaryOut> {
+  const params = new URLSearchParams({ period });
+  if (clientId) params.set("client_id", clientId);
+  return apiFetch<SummaryOut>(`/receipts/summary?${params.toString()}`);
+}
+
+/**
+ * The API does not block uploads into a locked month — it re-files them into
+ * the next open one. Callers must reflect that (a notice, not a guard), see
+ * `app/(client)/index.tsx`. This query itself must also fail soft: an API
+ * that predates the endpoint 404s, and that must read as "not locked" rather
+ * than break the screen — see the 404 handling in the home screen's query.
+ */
+export function periodLockStatus(period: string, clientId?: string): Promise<PeriodLockOut> {
+  const params = new URLSearchParams({ period });
+  if (clientId) params.set("client_id", clientId);
+  return apiFetch<PeriodLockOut>(`/receipts/period-lock?${params.toString()}`);
+}
+
+/**
+ * Submission-to-accountant endpoints, added ahead of Task 13's UI so the
+ * home screen's test mocks (which reference `getSubmissionState`) resolve
+ * against a real module. Task 13 builds the submit button and status row on
+ * top of these; this task only wires the plumbing.
+ */
+export function getSubmissionState(period: string): Promise<SubmissionStateOut> {
+  return apiFetch<SubmissionStateOut>(`/receipts/submission?period=${encodeURIComponent(period)}`);
+}
+
+export function submitReceipts(period: string): Promise<SubmissionStateOut> {
+  return apiFetch<SubmissionStateOut>("/receipts/submit", {
+    method: "POST",
+    body: JSON.stringify({ period }),
   });
 }

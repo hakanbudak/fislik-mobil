@@ -9,4 +9,7 @@ export const queryKeys = {
   clientReceipts: (clientId: string, period: string) =>
     ["clients", clientId, "receipts", period] as const,
   clientCompany: (clientId: string) => ["clients", clientId, "company"] as const,
+  submission: (period: string) => ["submission", period] as const,
+  periodLock: (period: string, clientId?: string) => ["periodLock", period, clientId ?? null] as const,
+  credits: () => ["credits"] as const,
 };
