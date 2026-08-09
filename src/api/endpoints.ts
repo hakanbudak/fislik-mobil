@@ -91,3 +91,19 @@ export function patchExtraction(receiptId: string, data: ExtractionPatchIn): Pro
 export function retryExtraction(receiptId: string): Promise<ExtractionOut> {
   return apiFetch<ExtractionOut>(`/receipts/${receiptId}/extraction/retry`, { method: "POST" });
 }
+
+/**
+ * Re-files a receipt into a different month. The caller owns invalidating
+ * BOTH the old and new period's `queryKeys.receipts`/`summary`/`submission`
+ * — this endpoint only ever touches one receipt row.
+ */
+export function changePeriod(receiptId: string, period: string): Promise<ReceiptOut> {
+  return apiFetch<ReceiptOut>(`/receipts/${receiptId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ period }),
+  });
+}
+
+export function deleteReceipt(receiptId: string): Promise<void> {
+  return apiFetch<void>(`/receipts/${receiptId}`, { method: "DELETE" });
+}

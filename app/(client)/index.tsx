@@ -142,8 +142,15 @@ export default function HomeScreen() {
                 onDiscard={() => discard(item.record.id)}
               />
             ) : (
-              // Detail view arrives with a later task; tapping is a no-op for now.
-              <ReceiptCard receipt={item.receipt} onPress={() => {}} />
+              <ReceiptCard
+                receipt={item.receipt}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(client)/fis/[id]",
+                    params: { id: item.receipt.id, period: item.receipt.period },
+                  })
+                }
+              />
             )
           }
         />
