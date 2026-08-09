@@ -16,6 +16,13 @@ export const tokens = {
     // token means "card/panel background" and merely happens to share this
     // value today; this one tracks a foreground role instead.
     onPrimary: "#ffffff",
+    // A translucent dark scrim for controls placed over a live camera
+    // preview (kamera.tsx) — needs to stay legible over any color the feed
+    // shows, which a flat token can't guarantee.
+    scrim: "rgba(12, 26, 24, 0.45)",
+    // A translucent ring around the shutter button, on top of the solid
+    // `onPrimary` fill.
+    onPrimaryMuted: "rgba(255, 255, 255, 0.5)",
   },
   radius: { sm: 8, md: 11, lg: 14, pill: 999 },
   space: (n: number) => n * 4,
