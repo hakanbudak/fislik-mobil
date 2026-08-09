@@ -59,6 +59,7 @@ export default function KameraScreen() {
   }
 
   async function handleLibrary() {
+    if (busy) return;
     setBusy(true);
     try {
       const records = await pickFromLibrary(period);
@@ -69,6 +70,7 @@ export default function KameraScreen() {
   }
 
   async function handleDocument() {
+    if (busy) return;
     setBusy(true);
     try {
       const record = await pickDocument(period);
@@ -96,7 +98,13 @@ export default function KameraScreen() {
         </View>
 
         <View style={styles.shutterRow}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Galeriden seç" style={styles.sideAction} onPress={() => void handleLibrary()}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Galeriden seç"
+            style={[styles.sideAction, busy && styles.sideActionBusy]}
+            disabled={busy}
+            onPress={() => void handleLibrary()}
+          >
             <Images color={tokens.color.onPrimary} size={22} />
           </Pressable>
 
@@ -108,7 +116,13 @@ export default function KameraScreen() {
             onPress={() => void handleShutter()}
           />
 
-          <Pressable accessibilityRole="button" accessibilityLabel="PDF ekle" style={styles.sideAction} onPress={() => void handleDocument()}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="PDF ekle"
+            style={[styles.sideAction, busy && styles.sideActionBusy]}
+            disabled={busy}
+            onPress={() => void handleDocument()}
+          >
             <Paperclip color={tokens.color.onPrimary} size={22} />
           </Pressable>
         </View>
@@ -164,6 +178,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  sideActionBusy: { opacity: 0.6 },
   shutter: {
     width: 72,
     height: 72,
