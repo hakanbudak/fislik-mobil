@@ -6,6 +6,8 @@ export type ReceiptOut = components["schemas"]["ReceiptOut"];
 export type SummaryOut = components["schemas"]["SummaryOut"];
 export type PeriodLockOut = components["schemas"]["PeriodLockOut"];
 export type SubmissionStateOut = components["schemas"]["SubmissionStateOut"];
+export type ExtractionOut = components["schemas"]["ExtractionOut"];
+export type ExtractionPatchIn = components["schemas"]["ExtractionPatchIn"];
 
 /**
  * Step 1 of the upload handshake: reserves a receipt row and a presigned R2
@@ -71,4 +73,21 @@ export function submitReceipts(period: string): Promise<SubmissionStateOut> {
     method: "POST",
     body: JSON.stringify({ period }),
   });
+}
+
+/**
+ * Sends only the fields the caller changed — the API records an `edited`
+ * flag on the receipt, so PATCHing untouched fields back would wrongly mark
+ * an unedited receipt as hand-verified. `ExtractionEditor` owns the diffing.
+ */
+export function patchExtraction(receiptId: string, data: ExtractionPatchIn): Promise<ExtractionOut> {
+  return apiFetch<ExtractionOut>(`/receipts/${receiptId}/extraction`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Re-queues a failed extraction; the API returns it in its `pending` state. */
+export function retryExtraction(receiptId: string): Promise<ExtractionOut> {
+  return apiFetch<ExtractionOut>(`/receipts/${receiptId}/extraction/retry`, { method: "POST" });
 }
