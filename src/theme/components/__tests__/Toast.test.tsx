@@ -17,3 +17,24 @@ test("calls onHide after the duration elapses", () => {
   });
   expect(onHide).toHaveBeenCalledTimes(1);
 });
+
+test("does not restart the timer when the parent re-renders with a new onHide reference", () => {
+  const first = jest.fn();
+  const second = jest.fn();
+  const { rerender } = render(
+    <Toast message="Muhasebeciye gönderildi" onHide={first} duration={1000} />,
+  );
+
+  act(() => {
+    jest.advanceTimersByTime(500);
+  });
+  // Simulates an unrelated parent re-render (e.g. a query settling) passing
+  // a fresh inline callback — the visible message is unchanged.
+  rerender(<Toast message="Muhasebeciye gönderildi" onHide={second} duration={1000} />);
+  act(() => {
+    jest.advanceTimersByTime(500);
+  });
+
+  expect(first).not.toHaveBeenCalled();
+  expect(second).toHaveBeenCalledTimes(1);
+});

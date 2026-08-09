@@ -18,6 +18,7 @@ import { MonthSummaryCard } from "@/src/features/receipts/MonthSummaryCard";
 import { QueuedReceiptCard } from "@/src/features/receipts/QueuedReceiptCard";
 import { ReceiptCard } from "@/src/features/receipts/ReceiptCard";
 import { SubmissionRow } from "@/src/features/receipts/SubmissionRow";
+import { apiErrorMessage } from "@/src/lib/errors";
 import { currentPeriod } from "@/src/lib/period";
 import { EmptyState } from "@/src/theme/components/EmptyState";
 import { ErrorCard } from "@/src/theme/components/ErrorCard";
@@ -73,9 +74,6 @@ export default function HomeScreen() {
     retry: false,
   });
 
-  // The shared `errorMessage` helper (src/lib/errors.ts) is owed by Task 6's
-  // auth work, which hasn't landed on this branch yet — until then, an
-  // ApiError's Turkish `detail` is shown as-is.
   const submitMutation = useMutation({
     mutationFn: () => submitReceipts(period),
     onSuccess: () => {
@@ -83,7 +81,11 @@ export default function HomeScreen() {
       setToast("Muhasebeciye gönderildi");
     },
     onError: (error) => {
-      setToast(error instanceof ApiError ? error.detail : "Beklenmeyen bir hata oluştu");
+      // Re-invalidate on failure too (e.g. a 409 — already sent by another
+      // device) so the row and badge settle to the server's true state
+      // instead of staying stuck on stale data.
+      queryClient.invalidateQueries({ queryKey: queryKeys.submission(period) });
+      setToast(apiErrorMessage(error));
     },
   });
 

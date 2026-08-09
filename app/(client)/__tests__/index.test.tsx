@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import HomeScreen from "../index";
 import * as endpoints from "@/src/api/endpoints";
+import { currentPeriod, shiftPeriod } from "@/src/lib/period";
 
 jest.mock("@/src/api/endpoints");
 jest.mock("expo-router", () => ({ router: { push: jest.fn() }, Link: ({ children }: never) => children }));
@@ -73,7 +74,7 @@ test("warns when the month is locked", async () => {
   );
 });
 
-test("submits the current period when the send button is pressed", async () => {
+test("submits the picker's selected period, not just the initial one", async () => {
   mocked.receiptsSummary.mockResolvedValue(summary as never);
   mocked.listReceipts.mockResolvedValue([]);
   mocked.submitReceipts.mockResolvedValue({
@@ -84,9 +85,35 @@ test("submits the current period when the send button is pressed", async () => {
   });
   renderScreen();
   await waitFor(() => expect(screen.getByText("Muhasebeciye gönder")).toBeOnTheScreen());
+
+  // Move off the initial (current) period before submitting, so a button
+  // wired to the picker's state is distinguishable from one hardcoded to
+  // `currentPeriod()` — both would otherwise submit the same value.
+  const shiftedPeriod = shiftPeriod(currentPeriod(), -1);
+  fireEvent.press(screen.getByLabelText("Önceki ay"));
+  await waitFor(() => expect(mocked.getSubmissionState).toHaveBeenCalledWith(shiftedPeriod));
+  // Changing the period clears cached submission data until the refetch for
+  // the new period resolves, so the row briefly unmounts — wait for it to
+  // come back before pressing.
+  await waitFor(() => expect(screen.getByText("Muhasebeciye gönder")).toBeOnTheScreen());
+
   fireEvent.press(screen.getByText("Muhasebeciye gönder"));
-  const [selectedPeriod] = mocked.getSubmissionState.mock.calls[0];
-  await waitFor(() => expect(mocked.submitReceipts).toHaveBeenCalledWith(selectedPeriod));
+  await waitFor(() => expect(mocked.submitReceipts).toHaveBeenCalledWith(shiftedPeriod));
+});
+
+test("shows curated Turkish copy, not the raw detail, when submitting fails", async () => {
+  const { ApiError } = jest.requireActual("@/src/api/client");
+  mocked.receiptsSummary.mockResolvedValue(summary as never);
+  mocked.listReceipts.mockResolvedValue([]);
+  mocked.submitReceipts.mockRejectedValue(new ApiError(409, "already submitted this period"));
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("Muhasebeciye gönder")).toBeOnTheScreen());
+
+  fireEvent.press(screen.getByText("Muhasebeciye gönder"));
+  await waitFor(() => expect(screen.getByText("Bu işlem zaten yapılmış.")).toBeOnTheScreen());
+  expect(screen.queryByText(/already submitted/)).toBeNull();
+  // Settles the row/badge to the server's true state after the failure too.
+  await waitFor(() => expect(mocked.getSubmissionState).toHaveBeenCalledTimes(2));
 });
 
 test("treats a 404 from the lock endpoint as not locked", async () => {

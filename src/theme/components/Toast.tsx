@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { tokens } from "../tokens";
 import { text } from "../typography";
@@ -21,11 +21,20 @@ export function Toast({
   onHide: () => void;
   duration?: number;
 }) {
+  // Callers (this screen and every future one) pass an inline `onHide`, so a
+  // fresh function identity arrives on every unrelated re-render (a
+  // react-query background refetch, another query settling, etc). Keeping
+  // the latest callback in a ref lets the timer effect depend only on
+  // `message`/`duration` — the things that should genuinely restart it —
+  // instead of restarting on every render.
+  const onHideRef = useRef(onHide);
+  onHideRef.current = onHide;
+
   useEffect(() => {
     if (!message) return;
-    const timer = setTimeout(onHide, duration);
+    const timer = setTimeout(() => onHideRef.current(), duration);
     return () => clearTimeout(timer);
-  }, [message, duration, onHide]);
+  }, [message, duration]);
 
   if (!message) return null;
 
