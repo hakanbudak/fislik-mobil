@@ -185,3 +185,32 @@ export function getInviteInfo(token: string): Promise<InviteInfoOut> {
 export function acceptInviteByToken(token: string): Promise<GrantOut> {
   return apiFetch<GrantOut>(`/grants/invite/${token}/accept`, { method: "POST" });
 }
+
+/** Lists every grant the caller is party to, either direction, any status. */
+export function listGrants(): Promise<GrantOut[]> {
+  return apiFetch<GrantOut[]>("/grants");
+}
+
+/**
+ * Sends a fresh invite to `email`. The invited role is inferred server-side
+ * from the caller's own role (a client inviting an accountant, or vice
+ * versa) — there is nothing else for the caller to specify.
+ */
+export function inviteCounterpart(email: string): Promise<GrantOut> {
+  return apiFetch<GrantOut>("/grants", { method: "POST", body: JSON.stringify({ email }) });
+}
+
+/** Consents to a pending grant the caller was invited into. */
+export function acceptGrant(grantId: string): Promise<GrantOut> {
+  return apiFetch<GrantOut>(`/grants/${grantId}/accept`, { method: "POST" });
+}
+
+/** Declines a pending grant the caller was invited into. */
+export function declineGrant(grantId: string): Promise<void> {
+  return apiFetch<void>(`/grants/${grantId}/decline`, { method: "POST" });
+}
+
+/** Revokes an active grant, either direction — the caller owns ending it. */
+export function revokeGrant(grantId: string): Promise<void> {
+  return apiFetch<void>(`/grants/${grantId}`, { method: "DELETE" });
+}
