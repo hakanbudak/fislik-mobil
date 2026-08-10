@@ -39,7 +39,21 @@ function receiptBadge(receipt: ReceiptOut): { label: string; tone: "neutral" | "
   return null;
 }
 
-export function ReceiptCard({ receipt, onPress }: { receipt: ReceiptOut; onPress: () => void }) {
+export function ReceiptCard({
+  receipt,
+  onPress,
+  onLongPress,
+}: {
+  receipt: ReceiptOut;
+  onPress: () => void;
+  /**
+   * Optional — only the accountant's client month view (Task 22) passes
+   * this, to toggle one receipt's processed state without opening it.
+   * Omitted everywhere else, so every prior caller (the client's own home
+   * screen) is unaffected.
+   */
+  onLongPress?: () => void;
+}) {
   const analysis = receiptBadge(receipt);
   const wrongMonth = mismatchedPeriod(receipt.extraction?.receipt_date ?? null, receipt.period);
   // Mirrors the web card: the KDV line only appears alongside a successfully
@@ -55,6 +69,7 @@ export function ReceiptCard({ receipt, onPress }: { receipt: ReceiptOut; onPress
       accessibilityRole="button"
       accessibilityLabel="Fiş"
       onPress={onPress}
+      onLongPress={onLongPress}
       style={styles.card}
     >
       <View style={styles.thumbWrap}>

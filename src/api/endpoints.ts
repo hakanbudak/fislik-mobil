@@ -257,6 +257,51 @@ export function listClients(period: string): Promise<ClientSummaryOut[]> {
   return apiFetch<ClientSummaryOut[]>(`/clients?period=${encodeURIComponent(period)}`);
 }
 
+/**
+ * An accountant's view of one client's receipts for a month — same shape as
+ * `listReceipts` but scoped to a specific client rather than the caller's
+ * own uploads. Mirrors `fislik-web/src/api/endpoints.ts:164-171`.
+ */
+export function clientReceipts(clientId: string, period: string): Promise<ReceiptOut[]> {
+  return apiFetch<ReceiptOut[]>(`/clients/${clientId}/receipts?period=${encodeURIComponent(period)}`);
+}
+
+/** Marks a single receipt processed. No body — both ids travel in the path.
+ *  Mirrors `fislik-web/src/api/endpoints.ts:173-181`. */
+export function markProcessed(clientId: string, receiptId: string): Promise<void> {
+  return apiFetch<void>(`/clients/${clientId}/receipts/${receiptId}/processed`, { method: "POST" });
+}
+
+/** Clears a single receipt's processed mark.
+ *  Mirrors `fislik-web/src/api/endpoints.ts:196-204`. */
+export function unmarkProcessed(clientId: string, receiptId: string): Promise<void> {
+  return apiFetch<void>(`/clients/${clientId}/receipts/${receiptId}/processed`, { method: "DELETE" });
+}
+
+/**
+ * Marks every receipt in `period` processed in one call. `period` travels in
+ * the JSON body here — NOT the query string, unlike the unmark call below.
+ * Mirrors `fislik-web/src/api/endpoints.ts:183-194`.
+ */
+export function bulkMarkProcessed(clientId: string, period: string): Promise<{ marked: number }> {
+  return apiFetch<{ marked: number }>(`/clients/${clientId}/receipts/processed`, {
+    method: "POST",
+    body: JSON.stringify({ period }),
+  });
+}
+
+/**
+ * Clears every receipt's processed mark in `period` in one call. `period`
+ * travels in the query string here — NOT the body, unlike the mark call
+ * above. Mirrors `fislik-web/src/api/endpoints.ts:206-214`.
+ */
+export function bulkUnmarkProcessed(clientId: string, period: string): Promise<{ unmarked: number }> {
+  return apiFetch<{ unmarked: number }>(
+    `/clients/${clientId}/receipts/processed?period=${encodeURIComponent(period)}`,
+    { method: "DELETE" },
+  );
+}
+
 export type NotificationOut = components["schemas"]["NotificationOut"];
 export type NotificationsPage = components["schemas"]["NotificationsPage"];
 
