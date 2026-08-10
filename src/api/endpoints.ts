@@ -248,6 +248,15 @@ export function getClientCompany(clientId: string): Promise<CompanyOut> {
   return apiFetch<CompanyOut>(`/clients/${clientId}/company`);
 }
 
+export type ClientSummaryOut = components["schemas"]["ClientSummaryOut"];
+
+/** An accountant's own client roster for the given month — `receipt_count`,
+ *  `unprocessed_count` and `last_upload_at` all vary by `period`, so callers
+ *  must key their query on it too (see `queryKeys.clients`). */
+export function listClients(period: string): Promise<ClientSummaryOut[]> {
+  return apiFetch<ClientSummaryOut[]>(`/clients?period=${encodeURIComponent(period)}`);
+}
+
 export type NotificationOut = components["schemas"]["NotificationOut"];
 export type NotificationsPage = components["schemas"]["NotificationsPage"];
 
