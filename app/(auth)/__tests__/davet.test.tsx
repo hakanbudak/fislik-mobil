@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { router } from "expo-router";
 import InviteScreen from "../davet/[token]";
 import * as endpoints from "@/src/api/endpoints";
 import { ApiError } from "@/src/api/client";
@@ -17,6 +18,7 @@ const mockUseAuth = jest.fn();
 jest.mock("@/src/auth/AuthProvider", () => ({ useAuth: () => mockUseAuth() }));
 
 const mocked = endpoints as jest.Mocked<typeof endpoints>;
+const mockedRouter = router as unknown as { replace: jest.Mock };
 
 function renderScreen() {
   const client = createTestQueryClient();
@@ -157,6 +159,38 @@ test("signed in with the matching role: accepts with one tap via acceptInviteByT
 
   await waitFor(() => expect(mocked.acceptInviteByToken).toHaveBeenCalledWith("inv-123"));
   expect(mockSignUp).not.toHaveBeenCalled();
+});
+
+test("signed in as accountant: consenting lands on the client list, not the bare home route", async () => {
+  mockUseAuth.mockReturnValue({
+    signUp: mockSignUp,
+    status: "authed",
+    user: { id: "u3", role: "accountant", full_name: "Ayşe Yıldırım" },
+  });
+  mocked.getInviteInfo.mockResolvedValue(clientInvitesAccountant);
+  mocked.acceptInviteByToken.mockResolvedValue({} as endpoints.GrantOut);
+  renderScreen();
+
+  await waitFor(() => expect(screen.getByText("Daveti Kabul Et")).toBeOnTheScreen());
+  fireEvent.press(screen.getByText("Daveti Kabul Et"));
+
+  await waitFor(() => expect(mockedRouter.replace).toHaveBeenCalledWith("/(accountant)"));
+});
+
+test("signed in as client: consenting lands on Muhasebecim, where the new link is visible", async () => {
+  mockUseAuth.mockReturnValue({
+    signUp: mockSignUp,
+    status: "authed",
+    user: { id: "u5", role: "client", full_name: "Can Yıldız" },
+  });
+  mocked.getInviteInfo.mockResolvedValue(accountantInvitesClient);
+  mocked.acceptInviteByToken.mockResolvedValue({} as endpoints.GrantOut);
+  renderScreen();
+
+  await waitFor(() => expect(screen.getByText("Daveti Kabul Et")).toBeOnTheScreen());
+  fireEvent.press(screen.getByText("Daveti Kabul Et"));
+
+  await waitFor(() => expect(mockedRouter.replace).toHaveBeenCalledWith("/(client)/muhasebecim"));
 });
 
 test("signed in with the wrong role: explains the mismatch and offers no accept button", async () => {

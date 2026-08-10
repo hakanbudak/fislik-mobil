@@ -31,6 +31,24 @@ function homeFor(role: string): "/(accountant)" | "/(client)" {
 }
 
 /**
+ * Where a visitor lands right after *consenting* to an already-pending
+ * invite (as opposed to registering through one) — the screen that shows
+ * the relationship they just confirmed, not the bare home route. Mirrors
+ * `fislik-web/src/pages/InviteAcceptPage.tsx:62`'s `acceptMutation.onSuccess`,
+ * which sends an accountant to `/muhasebeci` (their client list — on the
+ * web that IS the accountant's home, per `ROLE_HOME`) and a client to
+ * `/muhasebecim` (their accountants page, distinct from `/`, the client's
+ * receipt-list home). Mobile has no accountant-side screens yet, so
+ * `/(accountant)` stands in as a forward reference the same way it already
+ * does everywhere else in this app (see `app/index.tsx`, `kayit.tsx`,
+ * `giris.tsx`) — once built it is expected to serve as both the
+ * accountant's home and their client list, same as the web.
+ */
+function destinationAfterConsent(role: string): "/(accountant)" | "/(client)/muhasebecim" {
+  return role === "accountant" ? "/(accountant)" : "/(client)/muhasebecim";
+}
+
+/**
  * Headline is deliberately generic ("X sizi Fişlik'e davet etti"), not
  * role-branched — invitations run in both directions, but
  * `fislik-web/src/pages/InviteAcceptPage.tsx` (the screen this mirrors)
@@ -147,7 +165,7 @@ function AcceptInviteByConsenting({
     try {
       await acceptInviteByToken(token);
       await queryClient.invalidateQueries({ queryKey: ["grants"] });
-      router.replace(homeFor(user.role));
+      router.replace(destinationAfterConsent(user.role));
     } catch (err) {
       setError(
         apiErrorMessage(err, { 404: "Bu davet size ait görünmüyor veya artık geçerli değil." }),
