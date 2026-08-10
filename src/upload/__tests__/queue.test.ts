@@ -133,3 +133,47 @@ test("a corrupt stored queue reads as empty rather than throwing", async () => {
   await AsyncStorage.setItem("fislik.upload_queue", "{not json");
   await expect(listQueue()).resolves.toEqual([]);
 });
+
+// Reproduces the CRITICAL race from the branch review: the 15s worker
+// interval calling `updateRecord(A, {status:"uploading"})` while the
+// capture screen calls `enqueue(B)` at the same moment. Both are
+// unguarded read-modify-write cycles over the same AsyncStorage key with
+// an await between the read and the write — if A's read is merely
+// *delayed* in delivery (not started later), its eventual write can still
+// land after B's, silently dropping B forever.
+//
+// This is made deterministic rather than timing-dependent: A's `getItem`
+// call is intercepted to hang on a manually-released deferred, while B's
+// enqueue is free to run (and, unserialized, fully completes) before A's
+// read is finally released with the snapshot it would truly have seen —
+// the state *before* B was written. Serialized, B's read-modify-write
+// cannot even begin until A's finishes, so this exact interleaving is
+// impossible and no write is lost.
+test("a worker updateRecord racing a capture enqueue does not drop either write", async () => {
+  await enqueue(input({ localUri: "file:///docs/a.jpg" }));
+  const [a] = await listQueue();
+
+  const staleSnapshot = await AsyncStorage.getItem("fislik.upload_queue");
+  let releaseA: (value: string | null) => void = () => {};
+  const deferredA = new Promise<string | null>((resolve) => {
+    releaseA = resolve;
+  });
+  (AsyncStorage.getItem as jest.Mock).mockImplementationOnce(() => deferredA);
+
+  const updatePromise = updateRecord(a.id, { status: "uploading" });
+  const enqueuePromise = enqueue(input({ localUri: "file:///docs/b.jpg" }));
+
+  // Let anything that can proceed without the delayed read do so. Unfixed,
+  // that's enough for enqueue's own read-modify-write to finish in full
+  // while updateRecord is still stuck on its delayed read — exactly the
+  // interleaving from the bug report. Fixed, updateRecord's write hasn't
+  // even started yet, so nothing else can have run either.
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  releaseA(staleSnapshot);
+  await Promise.all([updatePromise, enqueuePromise]);
+
+  const records = await listQueue();
+  expect(records).toHaveLength(2);
+  expect(records.find((r) => r.id === a.id)?.status).toBe("uploading");
+});

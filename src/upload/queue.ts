@@ -50,6 +50,33 @@ async function write(records: QueueRecord[]): Promise<void> {
   notify();
 }
 
+/**
+ * `enqueue`, `updateRecord` and `removeRecord` are each a read-modify-write
+ * cycle over the single `KEY` AsyncStorage entry, with an `await` between
+ * the read and the write. There are two concurrent writers by design — the
+ * worker's 15s interval (`worker.ts`) and the capture screen — so without
+ * serialization, one's read can be based on a snapshot that is already
+ * stale by the time it writes, silently reverting the other's write (see
+ * `queue.test.ts`'s "racing" test for the exact interleaving this closes).
+ *
+ * A simple promise-chain mutex: every mutation is appended to `tail`, so
+ * each one's read only starts once the previous one's write has finished.
+ * Callers cannot know about each other, so this has to live here rather
+ * than being pushed onto them.
+ */
+let tail: Promise<unknown> = Promise.resolve();
+
+function synchronized<T>(task: () => Promise<T>): Promise<T> {
+  const run = tail.then(task, task);
+  // The chain must keep advancing even if a task rejects — otherwise one
+  // failed mutation would wedge every mutation queued after it forever.
+  tail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 export async function listQueue(): Promise<QueueRecord[]> {
   return (await read()).sort((a, b) => a.createdAt - b.createdAt);
 }
@@ -60,34 +87,40 @@ export async function enqueue(input: {
   period: string;
   clientId?: string;
 }): Promise<QueueRecord> {
-  const record: QueueRecord = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-    ...input,
-    status: "pending",
-    attempts: 0,
-    createdAt: Date.now(),
-  };
-  await write([...(await read()), record]);
-  return record;
+  return synchronized(async () => {
+    const record: QueueRecord = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      ...input,
+      status: "pending",
+      attempts: 0,
+      createdAt: Date.now(),
+    };
+    await write([...(await read()), record]);
+    return record;
+  });
 }
 
 export async function updateRecord(id: string, patch: Partial<QueueRecord>): Promise<void> {
-  const records = await read();
-  await write(records.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  return synchronized(async () => {
+    const records = await read();
+    await write(records.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  });
 }
 
 export async function removeRecord(id: string): Promise<void> {
-  const records = await read();
-  const record = records.find((r) => r.id === id);
-  if (record) {
-    try {
-      const file = new File(record.localUri);
-      if (file.exists) file.delete();
-    } catch {
-      // Missing or already-deleted files must not block queue cleanup.
+  return synchronized(async () => {
+    const records = await read();
+    const record = records.find((r) => r.id === id);
+    if (record) {
+      try {
+        const file = new File(record.localUri);
+        if (file.exists) file.delete();
+      } catch {
+        // Missing or already-deleted files must not block queue cleanup.
+      }
     }
-  }
-  await write(records.filter((r) => r.id !== id));
+    await write(records.filter((r) => r.id !== id));
+  });
 }
 
 export async function nextPending(): Promise<QueueRecord | null> {

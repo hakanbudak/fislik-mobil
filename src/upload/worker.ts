@@ -66,16 +66,22 @@ export async function drainOnce(onUploaded?: UploadedHandler): Promise<void> {
  */
 export function startWorker(onUploaded?: UploadedHandler): () => void {
   let stopped = false;
+
+  // Must run before the interval and the network listener are registered
+  // below — resetStrandedUploads' own contract is that it is never safe to
+  // call once draining may already be in progress, and registering either
+  // of those first opens a window where a 15s tick or a connectivity change
+  // could start a drain before the reset has run.
+  void resetStrandedUploads().then(() => {
+    if (!stopped) void drainOnce(onUploaded);
+  });
+
   const interval = setInterval(() => {
     if (!stopped) void drainOnce(onUploaded);
   }, 15_000);
 
   const subscription = Network.addNetworkStateListener((state) => {
     if (!stopped && state.isConnected) void drainOnce(onUploaded);
-  });
-
-  void resetStrandedUploads().then(() => {
-    if (!stopped) void drainOnce(onUploaded);
   });
 
   return () => {

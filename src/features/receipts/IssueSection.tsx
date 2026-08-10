@@ -17,16 +17,15 @@ import { text } from "@/src/theme/typography";
  * and `ReceiptDrawer`'s open-issue card (the "AÇIK SORUN · {author} ·
  * {date}" copy this card's header borrows).
  *
- * `onResolve` is deliberately OPTIONAL, not a design choice this component
- * gets to make on its own: `fislik-api/app/modules/issues/router.py` gates
- * `open_issue` to `AccountantUser` and `resolve_issue` to `ClientUser` (plus
- * an ownership check) — an accountant calling resolve gets a 403, always.
- * So the accountant's screen renders this component WITHOUT `onResolve`
- * (report-only); a client-facing screen wanting the resolve action would
- * pass `onResolve` and omit reporting UI entirely (there is currently no
- * such screen — `app/(client)/fis/[id].tsx` implements its own resolve
- * button directly rather than going through this component, since it has
- * no reporting UI to share with the accountant's "Sorun bildir" flow).
+ * `onOpen` and `onResolve` are both OPTIONAL, not a design choice this
+ * component gets to make on its own: `fislik-api/app/modules/issues/router.py`
+ * gates `open_issue` to `AccountantUser` and `resolve_issue` to `ClientUser`
+ * (plus an ownership check) — either role calling the other's action gets a
+ * 403, always. So the accountant's screen passes `onOpen` only (report-only,
+ * no resolve button on the card), and the client's screen — which only ever
+ * mounts this when `issue` is already set — passes `onResolve` only (no
+ * reporting UI at all; the "Sorun bildir" composer branch below is
+ * unreachable without `onOpen` and renders nothing).
  *
  * Owns its own composer/submit/resolve state and turns a rejected
  * `onOpen`/`onResolve` into inline Turkish copy via `apiErrorMessage` —
@@ -39,7 +38,7 @@ export function IssueSection({
   onResolve,
 }: {
   issue: IssueOut | null;
-  onOpen: (message: string) => void | Promise<void>;
+  onOpen?: (message: string) => void | Promise<void>;
   onResolve?: () => void | Promise<void>;
 }) {
   const [composerOpen, setComposerOpen] = useState(false);
@@ -58,6 +57,7 @@ export function IssueSection({
   }
 
   async function handleSubmit() {
+    if (!onOpen) return;
     const trimmed = message.trim();
     if (trimmed === "") {
       setValidationError("Lütfen sorunu açıklayın");
@@ -117,6 +117,8 @@ export function IssueSection({
       </Card>
     );
   }
+
+  if (!onOpen) return null;
 
   if (!composerOpen) {
     return (

@@ -1,6 +1,8 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react-native";
 import { Linking } from "react-native";
 import KameraScreen from "../kamera";
+import { createTestQueryClient } from "@/src/test/queryClient";
 
 jest.mock("expo-router", () => ({ router: { back: jest.fn(), push: jest.fn() } }));
 // KameraScreen imports src/upload/capture.ts, which pulls in the queue
@@ -9,6 +11,18 @@ jest.mock("expo-router", () => ({ router: { back: jest.fn(), push: jest.fn() } }
 jest.mock("@react-native-async-storage/async-storage", () =>
   require("@react-native-async-storage/async-storage/jest/async-storage-mock"),
 );
+
+// CaptureScreen (rendered inside KameraScreen) calls useQueryClient() to
+// bind invalidateAfterUpload into the capture-triggered drain handler —
+// every render needs a provider.
+function renderScreen() {
+  const client = createTestQueryClient();
+  return render(
+    <QueryClientProvider client={client}>
+      <KameraScreen />
+    </QueryClientProvider>,
+  );
+}
 
 // The camera screen itself (a full-screen CameraView) is not meaningfully
 // unit-testable — rendering it would only assert that a native view mounted,
@@ -29,13 +43,13 @@ beforeEach(() => {
 
 test("renders nothing while permission status is unknown", () => {
   mockPermission = null;
-  const { toJSON } = render(<KameraScreen />);
+  const { toJSON } = renderScreen();
   expect(toJSON()).toBeNull();
 });
 
 test("shows Turkish guidance and an offer to ask again when re-askable", () => {
   mockPermission = { granted: false, canAskAgain: true };
-  render(<KameraScreen />);
+  renderScreen();
   expect(screen.getByText("Fiş çekebilmek için kamera izni gerekiyor")).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: "İzin ver" }));
   expect(mockRequestPermission).toHaveBeenCalled();
@@ -44,7 +58,7 @@ test("shows Turkish guidance and an offer to ask again when re-askable", () => {
 test("shows a settings hand-off when the permission can no longer be asked for", () => {
   mockPermission = { granted: false, canAskAgain: false };
   const openSettings = jest.spyOn(Linking, "openSettings").mockResolvedValue();
-  render(<KameraScreen />);
+  renderScreen();
   expect(screen.getByText("Fiş çekebilmek için kamera izni gerekiyor")).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: "Ayarları aç" }));
   expect(openSettings).toHaveBeenCalled();

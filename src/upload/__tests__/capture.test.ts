@@ -4,6 +4,7 @@ import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { captureToQueue, pickDocument, pickFromLibrary } from "../capture";
 import * as queue from "../queue";
+import * as worker from "../worker";
 
 // Automocking "../queue" still loads the real module to introspect its
 // shape, which pulls in the real AsyncStorage import — give it the
@@ -65,6 +66,7 @@ jest.mock("expo-file-system", () => {
 
 const manipulator = ImageManipulator as jest.Mocked<typeof ImageManipulator>;
 const mockedQueue = queue as jest.Mocked<typeof queue>;
+const mockedWorker = worker as jest.Mocked<typeof worker>;
 const mockedImagePicker = ImagePicker as jest.Mocked<typeof ImagePicker>;
 const mockedDocumentPicker = DocumentPicker as jest.Mocked<typeof DocumentPicker>;
 
@@ -94,6 +96,20 @@ test("stores the capture outside the cache so it survives eviction", async () =>
 test("threads clientId for an accountant's on-behalf capture", async () => {
   await captureToQueue("file:///cache/raw.jpg", "2026-08", "c1");
   expect(mockedQueue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ clientId: "c1" }));
+});
+
+// Branch review, IMPORTANT: capture.ts's own drainOnce() calls used to pass
+// no handler. worker.ts's `draining` guard makes the first caller win, so
+// when a capture's own drain performed the upload (not the worker
+// interval's), invalidateAfterUpload never ran — the receipt reached the
+// server but the screen kept showing stale data, since removeRecord means
+// no later drain gets a second chance. This pins that the caller-supplied
+// handler reaches drainOnce; CaptureScreen.invalidate.test.tsx proves the
+// full chain (drain -> upload -> handler -> cache invalidation) end to end.
+test("forwards the caller's onUploaded handler to drainOnce", async () => {
+  const onUploaded = jest.fn();
+  await captureToQueue("file:///cache/raw.jpg", "2026-08", undefined, onUploaded);
+  expect(mockedWorker.drainOnce).toHaveBeenCalledWith(onUploaded);
 });
 
 describe("pickDocument", () => {
@@ -145,6 +161,13 @@ describe("pickDocument", () => {
     await pickDocument("2026-08", "c1");
     expect(mockedQueue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ clientId: "c1" }));
   });
+
+  test("forwards the caller's onUploaded handler to drainOnce", async () => {
+    pickedPdf();
+    const onUploaded = jest.fn();
+    await pickDocument("2026-08", undefined, onUploaded);
+    expect(mockedWorker.drainOnce).toHaveBeenCalledWith(onUploaded);
+  });
 });
 
 describe("pickFromLibrary", () => {
@@ -179,6 +202,16 @@ describe("pickFromLibrary", () => {
     expect(mockedQueue.enqueue).toHaveBeenCalledTimes(2);
     for (const call of mockedQueue.enqueue.mock.calls) {
       expect(call[0]).toEqual(expect.objectContaining({ clientId: "c1" }));
+    }
+  });
+
+  test("forwards the caller's onUploaded handler to every drainOnce", async () => {
+    pickedPhotos(["file:///cache/a.jpg", "file:///cache/b.jpg"]);
+    const onUploaded = jest.fn();
+    await pickFromLibrary("2026-08", undefined, onUploaded);
+    expect(mockedWorker.drainOnce).toHaveBeenCalledTimes(2);
+    for (const call of mockedWorker.drainOnce.mock.calls) {
+      expect(call[0]).toBe(onUploaded);
     }
   });
 });

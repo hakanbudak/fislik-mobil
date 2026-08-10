@@ -1,9 +1,12 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Images, Paperclip, X } from "lucide-react-native";
 import { useRef, useState } from "react";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { captureToQueue, pickDocument, pickFromLibrary } from "@/src/upload/capture";
+import { invalidateAfterUpload } from "@/src/upload/invalidateAfterUpload";
 import type { QueueRecord } from "@/src/upload/queue";
+import type { UploadedHandler } from "@/src/upload/worker";
 import { Button } from "@/src/theme/components/Button";
 import { EmptyState } from "@/src/theme/components/EmptyState";
 import { formatPeriodLabel } from "@/src/lib/period";
@@ -42,6 +45,15 @@ export function CaptureScreen({
   const [shots, setShots] = useState<QueueRecord[]>([]);
   const [busy, setBusy] = useState(false);
   const cameraRef = useRef<CameraView>(null);
+  const queryClient = useQueryClient();
+
+  // Every capture triggers its own drain (below), and `worker.ts`'s
+  // `draining` guard means that drain — not the interval's — is often the
+  // one that actually performs the upload. Without threading this through,
+  // that upload's invalidation never runs (see `src/upload/capture.ts`).
+  // Same handler `app/_layout.tsx` wires into `startWorker`.
+  const onUploaded: UploadedHandler = (receipt, requestedPeriod, uploadedClientId) =>
+    invalidateAfterUpload(queryClient, receipt, requestedPeriod, uploadedClientId);
 
   if (!permission) return null;
 
@@ -69,7 +81,7 @@ export function CaptureScreen({
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.9 });
       if (photo) {
-        const record = await captureToQueue(photo.uri, period, clientId);
+        const record = await captureToQueue(photo.uri, period, clientId, onUploaded);
         setShots((prev) => [...prev, record]);
       }
     } finally {
@@ -81,7 +93,7 @@ export function CaptureScreen({
     if (busy) return;
     setBusy(true);
     try {
-      const records = await pickFromLibrary(period, clientId);
+      const records = await pickFromLibrary(period, clientId, onUploaded);
       if (records.length) setShots((prev) => [...prev, ...records]);
     } finally {
       setBusy(false);
@@ -92,7 +104,7 @@ export function CaptureScreen({
     if (busy) return;
     setBusy(true);
     try {
-      const record = await pickDocument(period, clientId);
+      const record = await pickDocument(period, clientId, onUploaded);
       if (record) setShots((prev) => [...prev, record]);
     } finally {
       setBusy(false);

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { ArrowLeft, TriangleAlert } from "lucide-react-native";
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ApiError } from "@/src/api/client";
 import {
   changePeriod,
@@ -17,6 +17,7 @@ import {
 } from "@/src/api/endpoints";
 import { queryKeys } from "@/src/api/queryKeys";
 import { ExtractionEditor } from "@/src/features/receipts/ExtractionEditor";
+import { IssueSection } from "@/src/features/receipts/IssueSection";
 import { ReceiptViewer } from "@/src/features/receipts/ReceiptViewer";
 import { apiErrorMessage } from "@/src/lib/errors";
 import { currentPeriod, formatPeriodLabel } from "@/src/lib/period";
@@ -144,13 +145,16 @@ export default function ReceiptDetailScreen() {
     onError: (error) => setToast(apiErrorMessage(error)),
   });
 
+  // No onError toast here: IssueSection already surfaces a rejected
+  // onResolve inline (same convention as the accountant screen's onOpen,
+  // which IssueSection also owns end to end) — a toast on top would just
+  // duplicate it.
   const resolveIssueMutation = useMutation({
     mutationFn: (issueId: string) => resolveIssue(issueId),
     onSuccess: () => {
       setIssueResolved(true);
       invalidatePeriod(period);
     },
-    onError: (error) => setToast(apiErrorMessage(error)),
   });
 
   if (receiptsQuery.isLoading) {
@@ -193,10 +197,14 @@ export default function ReceiptDetailScreen() {
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <View style={styles.viewerWrap}>
-          <ReceiptViewer receipt={receipt} />
-        </View>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoider}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          <View style={styles.viewerWrap}>
+            <ReceiptViewer receipt={receipt} />
+          </View>
 
         {locked ? (
           <Card style={styles.notice}>
@@ -220,21 +228,10 @@ export default function ReceiptDetailScreen() {
         ) : null}
 
         {activeIssue ? (
-          <Card style={styles.notice}>
-            <View style={styles.noticeHeader}>
-              <TriangleAlert size={16} color={tokens.color.danger} />
-              <Text style={[text.label, styles.issueTitle]}>Muhasebeciniz sorun bildirdi</Text>
-            </View>
-            <Text style={[text.body, styles.noticeText]}>{activeIssue.message}</Text>
-            <Text style={[text.caption, styles.issueAuthor]}>{activeIssue.author_name}</Text>
-            <Button
-              title="Çözüldü olarak işaretle"
-              variant="danger"
-              onPress={() => resolveIssueMutation.mutate(activeIssue.id)}
-              loading={resolveIssueMutation.isPending}
-              busyTitle="İşaretleniyor…"
-            />
-          </Card>
+          <IssueSection
+            issue={activeIssue}
+            onResolve={() => resolveIssueMutation.mutateAsync(activeIssue.id)}
+          />
         ) : null}
 
         <ExtractionEditor
@@ -312,7 +309,8 @@ export default function ReceiptDetailScreen() {
             </View>
           </Card>
         ) : null}
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <Toast message={toast} onHide={() => setToast(null)} />
     </View>
@@ -333,13 +331,12 @@ const styles = StyleSheet.create({
     borderColor: tokens.color.border,
     backgroundColor: tokens.color.card,
   },
+  keyboardAvoider: { flex: 1 },
   scroll: { gap: tokens.space(3), padding: tokens.space(3), paddingTop: 0, paddingBottom: tokens.space(8) },
   viewerWrap: { height: 360, borderRadius: tokens.radius.lg, overflow: "hidden" },
   notice: { gap: tokens.space(1.5) },
   noticeHeader: { flexDirection: "row", alignItems: "flex-start", gap: tokens.space(2) },
   noticeText: { color: tokens.color.ink, flex: 1 },
-  issueTitle: { color: tokens.color.danger },
-  issueAuthor: { color: tokens.color.inkSoft },
   periodRow: {
     flexDirection: "row",
     alignItems: "center",

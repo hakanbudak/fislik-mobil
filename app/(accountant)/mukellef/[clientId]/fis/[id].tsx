@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { ArrowLeft } from "lucide-react-native";
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import {
   clientReceipts,
   openIssue,
@@ -128,26 +128,31 @@ export default function ReceiptDetailScreen() {
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <View style={styles.viewerWrap}>
-          <ReceiptViewer receipt={receipt} />
-        </View>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoider}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          <View style={styles.viewerWrap}>
+            <ReceiptViewer receipt={receipt} />
+          </View>
 
-        <IssueSection
-          issue={receipt.open_issue}
-          onOpen={async (message) => {
-            await openIssueMutation.mutateAsync(message);
-          }}
-        />
+          <IssueSection
+            issue={receipt.open_issue}
+            onOpen={async (message) => {
+              await openIssueMutation.mutateAsync(message);
+            }}
+          />
 
-        <ExtractionEditor
-          extraction={receipt.extraction ?? null}
-          onSave={async (patch) => {
-            await patchMutation.mutateAsync(patch);
-          }}
-          onRetry={() => retryMutation.mutate()}
-        />
-      </ScrollView>
+          <ExtractionEditor
+            extraction={receipt.extraction ?? null}
+            onSave={async (patch) => {
+              await patchMutation.mutateAsync(patch);
+            }}
+            onRetry={() => retryMutation.mutate()}
+          />
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <Toast message={toast} onHide={() => setToast(null)} />
     </View>
@@ -168,6 +173,7 @@ const styles = StyleSheet.create({
     borderColor: tokens.color.border,
     backgroundColor: tokens.color.card,
   },
+  keyboardAvoider: { flex: 1 },
   scroll: { gap: tokens.space(3), padding: tokens.space(3), paddingTop: 0, paddingBottom: tokens.space(8) },
   viewerWrap: { height: 360, borderRadius: tokens.radius.lg, overflow: "hidden" },
 });
