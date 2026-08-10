@@ -7,6 +7,7 @@ const config: ExpoConfig = {
   version: "1.0.0",
   orientation: "portrait",
   userInterfaceStyle: "light",
+  icon: "./assets/icon.png",
   ios: {
     bundleIdentifier: "dev.selamet.fislik",
     supportsTablet: false,
@@ -18,6 +19,10 @@ const config: ExpoConfig = {
   },
   android: {
     package: "dev.selamet.fislik",
+    adaptiveIcon: {
+      foregroundImage: "./assets/adaptive-icon.png",
+      backgroundColor: "#0f766e",
+    },
     intentFilters: [
       {
         action: "VIEW",
@@ -40,6 +45,15 @@ const config: ExpoConfig = {
     ["expo-camera", { cameraPermission: "Fişlerinizi fotoğraflamak için kamera erişimi gerekiyor." }],
     ["expo-image-picker", { photosPermission: "Galerinizden fiş seçebilmek için fotoğraf erişimi gerekiyor." }],
     "expo-sharing",
+    [
+      "expo-splash-screen",
+      {
+        image: "./assets/splash.png",
+        imageWidth: 200,
+        resizeMode: "contain",
+        backgroundColor: "#e9eeed",
+      },
+    ],
   ],
   extra: { apiUrl: process.env.EXPO_PUBLIC_API_URL },
 };

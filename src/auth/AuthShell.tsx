@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "expo-router";
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { FislikMark } from "@/src/theme/components/FislikMark";
 import { tokens } from "@/src/theme/tokens";
 import { text } from "@/src/theme/typography";
 
@@ -34,7 +35,9 @@ export function AuthShell({
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={[text.title, styles.mark]}>Fişlik</Text>
+        <View style={styles.mark}>
+          <FislikMark width={42} height={60} />
+        </View>
         {children}
         <View style={styles.tabStrip}>
           {TABS.map((tab) => {
@@ -62,7 +65,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: tokens.space(5),
     paddingVertical: tokens.space(7),
   },
-  mark: { color: tokens.color.primary, textAlign: "center" },
+  mark: { alignItems: "center" },
   tabStrip: {
     flexDirection: "row",
     gap: tokens.space(1),
