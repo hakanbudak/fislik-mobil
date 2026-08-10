@@ -9,15 +9,19 @@ import {
   bulkUnmarkProcessed,
   clientReceipts,
   getClientCompany,
+  lockPeriod,
   markProcessed,
+  periodLockStatus,
+  unlockPeriod,
   unmarkProcessed,
   type CompanyOut,
+  type PeriodLockOut,
   type ReceiptOut,
 } from "@/src/api/endpoints";
 import { queryKeys } from "@/src/api/queryKeys";
 import { ReceiptCard } from "@/src/features/receipts/ReceiptCard";
 import { apiErrorMessage } from "@/src/lib/errors";
-import { currentPeriod } from "@/src/lib/period";
+import { currentPeriod, formatPeriodLabel } from "@/src/lib/period";
 import { Button } from "@/src/theme/components/Button";
 import { Card } from "@/src/theme/components/Card";
 import { EmptyState } from "@/src/theme/components/EmptyState";
@@ -63,6 +67,7 @@ export default function ClientMonthScreen() {
 
   const [companyExpanded, setCompanyExpanded] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [confirmingLock, setConfirmingLock] = useState(false);
 
   function setPeriod(next: string) {
     router.setParams({ period: next });
@@ -91,6 +96,46 @@ export default function ClientMonthScreen() {
   });
   const company = companyQuery.data ?? null;
   const clientTitle = fullNameParam ?? company?.trade_name ?? company?.full_name ?? "Mükellef";
+
+  // Month-closing state; a 404 from an API without the endpoint reads as
+  // "not locked" — mirrors the client home screen's own lock query.
+  const lockQuery = useQuery({
+    queryKey: queryKeys.periodLock(period, clientId),
+    queryFn: async (): Promise<PeriodLockOut> => {
+      try {
+        return await periodLockStatus(period, clientId);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+          return { locked: false, locked_at: null };
+        }
+        throw error;
+      }
+    },
+    retry: false,
+  });
+  const monthLocked = lockQuery.data?.locked === true;
+
+  const lockMutation = useMutation({
+    mutationFn: () => lockPeriod(clientId, period),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.periodLock(period, clientId) });
+      setConfirmingLock(false);
+      setToast(`${formatPeriodLabel(period)} kapatıldı`);
+    },
+    onError: (error) => setToast(apiErrorMessage(error)),
+  });
+
+  // Unlike locking, the web never confirms reopening a month (Task 22's
+  // AccountantMonthPage — `unlockMutation.mutate()` fires straight off the
+  // click), so this mirrors that asymmetry rather than confirming both.
+  const unlockMutation = useMutation({
+    mutationFn: () => unlockPeriod(clientId, period),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.periodLock(period, clientId) });
+      setToast(`${formatPeriodLabel(period)} yeniden açıldı`);
+    },
+    onError: (error) => setToast(apiErrorMessage(error)),
+  });
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: queryKeys.clientReceipts(clientId, period) });
@@ -182,16 +227,64 @@ export default function ClientMonthScreen() {
               />
             )}
           />
+        </>
+      ) : null}
 
-          <View style={styles.actionBar}>
+      {receiptsQuery.isSuccess ? (
+        <View style={styles.actionBar}>
+          {confirmingLock ? (
+            <Card style={styles.confirmCard}>
+              <Text style={[text.body, styles.confirmText]}>
+                {`${formatPeriodLabel(period)} kapatılsın mı? Mükellef bu ayda fiş silemez, düzenleyemez ve `}
+                {"ay değiştiremez; bu aya göndereceği yeni fişler ilk açık aya eklenir. Siz düzenlemeye "}
+                {"devam edebilirsiniz ve ayı istediğiniz zaman yeniden açabilirsiniz."}
+              </Text>
+              <View style={styles.confirmRow}>
+                <View style={styles.confirmButton}>
+                  <Button title="Vazgeç" variant="secondary" onPress={() => setConfirmingLock(false)} />
+                </View>
+                <View style={styles.confirmButton}>
+                  <Button
+                    title="Ayı Kapat"
+                    onPress={() => lockMutation.mutate()}
+                    loading={lockMutation.isPending}
+                    busyTitle="Kapatılıyor…"
+                  />
+                </View>
+              </View>
+            </Card>
+          ) : null}
+
+          {receipts.length > 0 ? (
             <Button
               title={anyUnprocessed ? "Tümünü işlendi yap" : "Tümünün işaretini kaldır"}
               onPress={() => bulkMutation.mutate(anyUnprocessed)}
               loading={bulkMutation.isPending}
               busyTitle="İşleniyor…"
             />
-          </View>
-        </>
+          ) : null}
+
+          {monthLocked ? (
+            <Button
+              title="Ay kapalı — Aç"
+              variant="secondary"
+              onPress={() => unlockMutation.mutate()}
+              loading={unlockMutation.isPending}
+              busyTitle="Açılıyor…"
+            />
+          ) : null}
+
+          {!monthLocked && !confirmingLock ? (
+            <Button
+              title="Ayı Kapat"
+              variant="secondary"
+              onPress={() => {
+                lockMutation.reset();
+                setConfirmingLock(true);
+              }}
+            />
+          ) : null}
+        </View>
       ) : null}
 
       <Toast message={toast} onHide={() => setToast(null)} />
@@ -314,5 +407,10 @@ const styles = StyleSheet.create({
     left: tokens.space(3),
     right: tokens.space(3),
     bottom: tokens.space(3),
+    gap: tokens.space(2),
   },
+  confirmCard: { gap: tokens.space(3) },
+  confirmText: { color: tokens.color.ink },
+  confirmRow: { flexDirection: "row", gap: tokens.space(2.5) },
+  confirmButton: { flex: 1 },
 });

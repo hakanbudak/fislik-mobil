@@ -61,6 +61,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   useLocalSearchParams.mockReturnValue({ clientId: "c1", period: "2026-08" });
   mocked.getClientCompany.mockResolvedValue(company);
+  mocked.periodLockStatus.mockResolvedValue({ locked: false, locked_at: null });
 });
 
 test("shows the client's name and month picker", async () => {
@@ -200,4 +201,76 @@ test("changing the month updates the route param instead of local state", async 
   fireEvent.press(screen.getByLabelText("Önceki ay"));
 
   expect(router.setParams).toHaveBeenCalledWith({ period: "2026-07" });
+});
+
+describe("month locking", () => {
+  test("shows 'Ayı Kapat' when the month is unlocked, and requires confirmation before calling the endpoint", async () => {
+    mocked.clientReceipts.mockResolvedValue([]);
+    mocked.lockPeriod.mockResolvedValue({ locked: true, locked_at: "2026-08-10T00:00:00Z" });
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("Ayı Kapat")).toBeOnTheScreen());
+
+    fireEvent.press(screen.getByText("Ayı Kapat"));
+    // Not called yet — pressing the action only opens the confirmation.
+    expect(mocked.lockPeriod).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByText("Vazgeç"));
+    expect(screen.queryByText(/kapatılsın mı/)).toBeNull();
+
+    fireEvent.press(screen.getByText("Ayı Kapat"));
+    await waitFor(() => expect(screen.getByText(/kapatılsın mı/)).toBeOnTheScreen());
+    fireEvent.press(screen.getByText("Ayı Kapat"));
+
+    await waitFor(() => expect(mocked.lockPeriod).toHaveBeenCalledWith("c1", "2026-08"));
+  });
+
+  test("locking invalidates the period-lock query", async () => {
+    mocked.clientReceipts.mockResolvedValue([]);
+    mocked.lockPeriod.mockResolvedValue({ locked: true, locked_at: "2026-08-10T00:00:00Z" });
+    const { queryClient } = renderScreen();
+    await waitFor(() => expect(screen.getByText("Ayı Kapat")).toBeOnTheScreen());
+    const invalidateSpy = jest.spyOn(queryClient, "invalidateQueries");
+
+    fireEvent.press(screen.getByText("Ayı Kapat"));
+    await waitFor(() => expect(screen.getByText(/kapatılsın mı/)).toBeOnTheScreen());
+    fireEvent.press(screen.getByText("Ayı Kapat"));
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: queryKeys.periodLock("2026-08", "c1") }),
+      ),
+    );
+  });
+
+  test("shows the locked indicator and an unlock control when the month is locked, calling the endpoint without confirmation", async () => {
+    mocked.clientReceipts.mockResolvedValue([]);
+    mocked.periodLockStatus.mockResolvedValue({ locked: true, locked_at: "2026-08-01T00:00:00Z" });
+    mocked.unlockPeriod.mockResolvedValue(undefined);
+    const { queryClient } = renderScreen();
+    await waitFor(() => expect(screen.getByText("Ay kapalı — Aç")).toBeOnTheScreen());
+    expect(screen.queryByText("Ayı Kapat")).toBeNull();
+    const invalidateSpy = jest.spyOn(queryClient, "invalidateQueries");
+
+    fireEvent.press(screen.getByText("Ay kapalı — Aç"));
+
+    await waitFor(() => expect(mocked.unlockPeriod).toHaveBeenCalledWith("c1", "2026-08"));
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: queryKeys.periodLock("2026-08", "c1") }),
+      ),
+    );
+  });
+
+  test("shows an error toast when locking fails", async () => {
+    mocked.clientReceipts.mockResolvedValue([]);
+    mocked.lockPeriod.mockRejectedValue(new Error("boom"));
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("Ayı Kapat")).toBeOnTheScreen());
+
+    fireEvent.press(screen.getByText("Ayı Kapat"));
+    await waitFor(() => expect(screen.getByText(/kapatılsın mı/)).toBeOnTheScreen());
+    fireEvent.press(screen.getByText("Ayı Kapat"));
+
+    await waitFor(() => expect(screen.getByText("Bir şeyler ters gitti. Lütfen tekrar dene.")).toBeOnTheScreen());
+  });
 });

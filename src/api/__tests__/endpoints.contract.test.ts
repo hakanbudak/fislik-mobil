@@ -91,6 +91,28 @@ describe("optional clientId query parameter", () => {
   });
 });
 
+describe("month locking", () => {
+  test("lockPeriod: POST /clients/:id/periods/:period/lock, no body", async () => {
+    const getRequest = captureRequest("post", "/clients/c1/periods/2026-08/lock", { locked: true, locked_at: "2026-08-10T00:00:00Z" });
+    await endpoints.lockPeriod("c1", "2026-08");
+    const req = getRequest();
+    expect(req.method).toBe("POST");
+    expect(req.pathname).toBe("/clients/c1/periods/2026-08/lock");
+    expect(req.search.toString()).toBe("");
+    expect(req.body).toBeUndefined();
+  });
+
+  test("unlockPeriod: DELETE /clients/:id/periods/:period/lock, no body", async () => {
+    const getRequest = captureRequest("delete", "/clients/c1/periods/2026-08/lock", null, 204);
+    await endpoints.unlockPeriod("c1", "2026-08");
+    const req = getRequest();
+    expect(req.method).toBe("DELETE");
+    expect(req.pathname).toBe("/clients/c1/periods/2026-08/lock");
+    expect(req.search.toString()).toBe("");
+    expect(req.body).toBeUndefined();
+  });
+});
+
 describe("period-scoped listings (a wrong period silently returns the wrong month)", () => {
   test("listReceipts: GET /receipts?period=", async () => {
     const getRequest = captureRequest("get", "/receipts", []);

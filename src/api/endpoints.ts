@@ -68,6 +68,23 @@ export function periodLockStatus(period: string, clientId?: string): Promise<Per
 }
 
 /**
+ * Closes a month for a specific client — the API stops the client from
+ * deleting, editing or re-filing receipts already in this period, and any
+ * new upload aimed at it gets re-filed into the next open month instead
+ * (see `completeUpload`'s note); it does NOT block the upload itself. The
+ * accountant may keep editing throughout. Mirrors
+ * `fislik-web/src/api/endpoints.ts`'s `lockPeriod`.
+ */
+export function lockPeriod(clientId: string, period: string): Promise<PeriodLockOut> {
+  return apiFetch<PeriodLockOut>(`/clients/${clientId}/periods/${period}/lock`, { method: "POST" });
+}
+
+/** Reopens a previously-closed month. Mirrors `fislik-web/src/api/endpoints.ts`'s `unlockPeriod`. */
+export function unlockPeriod(clientId: string, period: string): Promise<void> {
+  return apiFetch<void>(`/clients/${clientId}/periods/${period}/lock`, { method: "DELETE" });
+}
+
+/**
  * Submission-to-accountant endpoints, added ahead of Task 13's UI so the
  * home screen's test mocks (which reference `getSubmissionState`) resolve
  * against a real module. Task 13 builds the submit button and status row on
