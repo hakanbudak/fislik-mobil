@@ -53,7 +53,17 @@ export default function RegisterScreen() {
     setLoading(true);
     try {
       const user = await signUp({ email, password, full_name: fullName, role });
-      router.replace(user.role === "accountant" ? "/(accountant)" : "/(client)");
+      // A freshly-registered client has no company profile yet, and that
+      // profile is what their accountant reads when filing — so a client
+      // is walked into company setup with an onboarding marker (read by
+      // `app/(client)/firma-bilgileri.tsx` to show its "Şimdilik geç" skip
+      // button), while an accountant has no such profile and goes straight
+      // home. Mirrors `fislik-web/src/pages/RegisterPage.tsx`'s `onSuccess`.
+      if (user.role === "accountant") {
+        router.replace("/(accountant)");
+      } else {
+        router.replace({ pathname: "/(client)/firma-bilgileri", params: { onboarding: "1" } });
+      }
     } catch (err) {
       setError(apiErrorMessage(err));
     } finally {

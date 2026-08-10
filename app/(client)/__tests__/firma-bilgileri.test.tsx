@@ -1,5 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { router } from "expo-router";
 import FirmaBilgileriScreen from "../firma-bilgileri";
 import * as endpoints from "@/src/api/endpoints";
 import type { CompanyOut } from "@/src/api/endpoints";
@@ -8,7 +9,14 @@ import { createTestQueryClient } from "@/src/test/queryClient";
 
 jest.mock("@/src/api/endpoints");
 
+let mockSearchParams: { onboarding?: string } = {};
+jest.mock("expo-router", () => ({
+  router: { replace: jest.fn() },
+  useLocalSearchParams: () => mockSearchParams,
+}));
+
 const mocked = endpoints as jest.Mocked<typeof endpoints>;
+const mockedRouter = router as unknown as { replace: jest.Mock };
 
 function renderScreen() {
   const client = createTestQueryClient();
@@ -35,6 +43,7 @@ const existingCompany: CompanyOut = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockSearchParams = {};
 });
 
 test("renders existing values seeded from the loaded profile", async () => {
@@ -160,4 +169,33 @@ test("shows a curated error message, never the raw detail, when saving fails", a
     expect(screen.getByText("Bir şeyler ters gitti. Lütfen tekrar dene.")).toBeOnTheScreen(),
   );
   expect(screen.queryByText("internal trace xyz")).toBeNull();
+});
+
+test("does not show the onboarding skip button when arriving from the profile screen", async () => {
+  mockSearchParams = {};
+  mocked.getCompany.mockRejectedValue(new ApiError(404, "not found"));
+  renderScreen();
+
+  await waitFor(() => expect(screen.getByLabelText("Adı Soyadı")).toBeOnTheScreen());
+  expect(screen.queryByText("Şimdilik geç")).toBeNull();
+});
+
+test("shows the onboarding skip button when arriving right after registration", async () => {
+  mockSearchParams = { onboarding: "1" };
+  mocked.getCompany.mockRejectedValue(new ApiError(404, "not found"));
+  renderScreen();
+
+  await waitFor(() => expect(screen.getByText("Şimdilik geç")).toBeOnTheScreen());
+});
+
+test("pressing the skip button leaves for the client home without saving", async () => {
+  mockSearchParams = { onboarding: "1" };
+  mocked.getCompany.mockRejectedValue(new ApiError(404, "not found"));
+  renderScreen();
+
+  await waitFor(() => expect(screen.getByText("Şimdilik geç")).toBeOnTheScreen());
+  fireEvent.press(screen.getByText("Şimdilik geç"));
+
+  expect(mockedRouter.replace).toHaveBeenCalledWith("/(client)");
+  expect(mocked.saveCompany).not.toHaveBeenCalled();
 });

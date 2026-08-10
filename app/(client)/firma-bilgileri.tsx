@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { router, useLocalSearchParams } from "expo-router";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { ApiError } from "@/src/api/client";
 import { getCompany, saveCompany, type CompanyIn } from "@/src/api/endpoints";
@@ -79,15 +80,22 @@ function toPayload(form: FormState): CompanyIn {
  * "Firma Bilgileri" screen — the client's own tax-certificate (vergi
  * levhası) profile, read by their accountant when filing. Mirrors
  * `fislik-web/src/pages/CompanyPage.tsx`'s field set, validation and error
- * copy exactly (the web's onboarding "Şimdilik geç" skip step is out of
- * scope here — this screen is only ever reached from the profile screen,
- * per Task 19/20's split).
+ * copy exactly.
+ *
+ * Reached two ways, same as the web: from the profile screen at any time
+ * (plain URL, no marker), or right after a client registers
+ * (`app/(auth)/kayit.tsx` routes here with `?onboarding=1` instead of the
+ * web's router-state `{ onboarding: true }` — expo-router has no state
+ * equivalent). Only the latter shows the "Şimdilik geç" skip button; opening
+ * this same screen later from the profile screen never does.
  *
  * A 404 from `GET /company` means the profile was never filled in, not an
  * error: the query resolves to `null` and the form simply renders empty,
  * same pattern as `useMe`'s 401 handling elsewhere in this app.
  */
 export default function FirmaBilgileriScreen() {
+  const { onboarding } = useLocalSearchParams<{ onboarding?: string }>();
+  const isOnboarding = onboarding === "1";
   const queryClient = useQueryClient();
 
   const companyQuery = useQuery({
@@ -261,6 +269,13 @@ export default function FirmaBilgileriScreen() {
             loading={saveMutation.isPending}
             onPress={handleSubmit}
           />
+          {isOnboarding ? (
+            <Button
+              title="Şimdilik geç"
+              variant="secondary"
+              onPress={() => router.replace("/(client)")}
+            />
+          ) : null}
         </ScrollView>
       ) : null}
     </View>
