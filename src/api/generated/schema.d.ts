@@ -693,6 +693,28 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AuthOut
+         * @description Login/register response. Extends UserOut with the raw session token so
+         *     native clients (which have no usable cookie jar) can store it themselves.
+         */
+        AuthOut: {
+            /** Id */
+            id: string;
+            /** Email */
+            email: string;
+            /** Full Name */
+            full_name: string;
+            /** Role */
+            role: string;
+            /**
+             * Impersonated
+             * @default false
+             */
+            impersonated: boolean;
+            /** Access Token */
+            access_token: string;
+        };
         /** BulkProcessIn */
         BulkProcessIn: {
             /** Period */
@@ -1155,7 +1177,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserOut"];
+                    "application/json": components["schemas"]["AuthOut"];
                 };
             };
             /** @description Validation Error */
@@ -1188,7 +1210,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserOut"];
+                    "application/json": components["schemas"]["AuthOut"];
                 };
             };
             /** @description Validation Error */
