@@ -240,6 +240,31 @@ describe("receipt lifecycle", () => {
   });
 });
 
+describe("issue reporting and resolution", () => {
+  test("openIssue: POST /clients/:clientId/receipts/:receiptId/issues with the message in the body", async () => {
+    const getRequest = captureRequest("post", "/clients/c1/receipts/r1/issues", {
+      id: "i1",
+      message: "Tutar okunamıyor",
+      author_name: "Muhasebeci Ayşe",
+      created_at: "2026-08-06T10:00:00Z",
+    });
+    await endpoints.openIssue("c1", "r1", "Tutar okunamıyor");
+    const req = getRequest();
+    expect(req.method).toBe("POST");
+    expect(req.pathname).toBe("/clients/c1/receipts/r1/issues");
+    expect(req.body).toEqual({ message: "Tutar okunamıyor" });
+  });
+
+  test("resolveIssue: POST /issues/:issueId/resolve, no body", async () => {
+    const getRequest = captureRequest("post", "/issues/i1/resolve", null, 204);
+    await endpoints.resolveIssue("i1");
+    const req = getRequest();
+    expect(req.method).toBe("POST");
+    expect(req.pathname).toBe("/issues/i1/resolve");
+    expect(req.body).toBeUndefined();
+  });
+});
+
 describe("auth", () => {
   test("login: POST /auth/login with credentials in the body", async () => {
     const getRequest = captureRequest("post", "/auth/login", { access_token: "t" });

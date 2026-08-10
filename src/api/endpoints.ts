@@ -330,6 +330,26 @@ export function bulkUnmarkProcessed(clientId: string, period: string): Promise<{
   );
 }
 
+export type IssueOut = components["schemas"]["IssueOut"];
+
+/**
+ * Raises an issue against a specific client's receipt — the accountant's
+ * "this one is unreadable" / "this belongs to another month" channel.
+ * Mirrors `fislik-web/src/api/endpoints.ts`'s `openIssue`. The API 409s
+ * when the receipt already has an open issue; see `IssueSection`'s override.
+ */
+export function openIssue(clientId: string, receiptId: string, message: string): Promise<IssueOut> {
+  return apiFetch<IssueOut>(`/clients/${clientId}/receipts/${receiptId}/issues`, {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+}
+
+/** Marks an issue resolved. Mirrors `fislik-web/src/api/endpoints.ts`'s `resolveIssue`. */
+export function resolveIssue(issueId: string): Promise<void> {
+  return apiFetch<void>(`/issues/${issueId}/resolve`, { method: "POST" });
+}
+
 export type NotificationOut = components["schemas"]["NotificationOut"];
 export type NotificationsPage = components["schemas"]["NotificationsPage"];
 

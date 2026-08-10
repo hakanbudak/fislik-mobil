@@ -1,17 +1,23 @@
+import type { ComponentProps } from "react";
 import { useRef, useState } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { PinchGestureHandler, State, type PinchGestureHandlerStateChangeEvent } from "react-native-gesture-handler";
 import { WebView } from "react-native-webview";
-// Not re-exported from the package's top-level `index.d.ts` (only
-// `FileDownload`/`WebViewMessageEvent`/`WebViewNavigation` are); the
-// subpath import is the only way to name these event types.
-import type { WebViewErrorEvent, WebViewHttpErrorEvent } from "react-native-webview/lib/WebViewTypes";
 import { isPdf } from "@/src/lib/receipts";
 import { tokens } from "@/src/theme/tokens";
 import { text } from "@/src/theme/typography";
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 4;
+
+// Derived from `WebView`'s own prop types rather than imported from
+// `react-native-webview/lib/WebViewTypes` — that subpath is package
+// internals, not part of the public API surface, and a minor version bump
+// can move or rename it with no install-time signal (Task 17's review).
+// Neither handler below reads a field off these events, so the derived
+// type is all this file needs.
+type WebViewOnErrorEvent = Parameters<NonNullable<ComponentProps<typeof WebView>["onError"]>>[0];
+type WebViewOnHttpErrorEvent = Parameters<NonNullable<ComponentProps<typeof WebView>["onHttpError"]>>[0];
 
 /**
  * Shown in place of the image/PDF when it fails to load. Worded around the
@@ -86,8 +92,8 @@ export function ReceiptViewer({ receipt }: { receipt: { image_url: string; conte
         source={{ uri: receipt.image_url }}
         style={styles.fill}
         originWhitelist={["*"]}
-        onError={(_event: WebViewErrorEvent) => setFailed(true)}
-        onHttpError={(_event: WebViewHttpErrorEvent) => setFailed(true)}
+        onError={(_event: WebViewOnErrorEvent) => setFailed(true)}
+        onHttpError={(_event: WebViewOnHttpErrorEvent) => setFailed(true)}
       />
     );
   }
