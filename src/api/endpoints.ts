@@ -165,6 +165,7 @@ export function confirmPasswordReset(token: string, newPassword: string): Promis
 }
 
 export type InviteInfoOut = components["schemas"]["InviteInfoOut"];
+export type GrantOut = components["schemas"]["GrantOut"];
 
 /**
  * Invitations run in both directions — a client can invite an accountant and
@@ -174,4 +175,13 @@ export type InviteInfoOut = components["schemas"]["InviteInfoOut"];
  */
 export function getInviteInfo(token: string): Promise<InviteInfoOut> {
   return apiFetch<InviteInfoOut>(`/grants/invite/${token}`);
+}
+
+/**
+ * Accepts a pending invite for a visitor who is ALREADY signed in with the
+ * matching role — no registration needed, just consent. Mirrors
+ * `fislik-web/src/pages/InviteAcceptPage.tsx`'s `acceptInviteByToken`.
+ */
+export function acceptInviteByToken(token: string): Promise<GrantOut> {
+  return apiFetch<GrantOut>(`/grants/invite/${token}/accept`, { method: "POST" });
 }

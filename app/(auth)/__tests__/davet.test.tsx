@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react-nativ
 import { QueryClientProvider } from "@tanstack/react-query";
 import InviteScreen from "../davet/[token]";
 import * as endpoints from "@/src/api/endpoints";
+import { ApiError } from "@/src/api/client";
 import { createTestQueryClient } from "@/src/test/queryClient";
 
 jest.mock("@/src/api/endpoints");
@@ -12,9 +13,8 @@ jest.mock("expo-router", () => ({
 }));
 
 const mockSignUp = jest.fn();
-jest.mock("@/src/auth/AuthProvider", () => ({
-  useAuth: () => ({ signUp: mockSignUp, status: "anon" }),
-}));
+const mockUseAuth = jest.fn();
+jest.mock("@/src/auth/AuthProvider", () => ({ useAuth: () => mockUseAuth() }));
 
 const mocked = endpoints as jest.Mocked<typeof endpoints>;
 
@@ -27,22 +27,36 @@ function renderScreen() {
   );
 }
 
-beforeEach(() => jest.clearAllMocks());
+const clientInvitesAccountant: endpoints.InviteInfoOut = {
+  invited_email: "muhasebeci@test.com",
+  client_name: "Selin Ticaret",
+  inviter_name: "Selin Ticaret",
+  inviter_role: "client",
+  invited_role: "accountant",
+};
 
-test("shows who invited the accountant, and registers with the accountant role", async () => {
-  mocked.getInviteInfo.mockResolvedValue({
-    invited_email: "muhasebeci@test.com",
-    client_name: "Selin Ticaret",
-    inviter_name: "Selin Ticaret",
-    inviter_role: "client",
-    invited_role: "accountant",
-  });
+const accountantInvitesClient: endpoints.InviteInfoOut = {
+  invited_email: "mukellef@test.com",
+  client_name: "Deniz Mali Müşavirlik",
+  inviter_name: "Deniz Mali Müşavirlik",
+  inviter_role: "accountant",
+  invited_role: "client",
+};
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockUseAuth.mockReturnValue({ signUp: mockSignUp, status: "anon", user: null });
+});
+
+test("not signed in: shows the generic invite headline and registers with invited_role", async () => {
+  mocked.getInviteInfo.mockResolvedValue(clientInvitesAccountant);
   mockSignUp.mockResolvedValue({ id: "u1", role: "accountant" });
   renderScreen();
 
   await waitFor(() =>
-    expect(screen.getByText("Selin Ticaret sizi mali müşaviri olarak davet etti.")).toBeOnTheScreen(),
+    expect(screen.getByText("Selin Ticaret sizi Fişlik'e davet etti")).toBeOnTheScreen(),
   );
+  expect(screen.getByText("Hesabınızı oluşturarak daveti kabul edin.")).toBeOnTheScreen();
   expect(screen.getByDisplayValue("muhasebeci@test.com")).toBeOnTheScreen();
 
   fireEvent.changeText(screen.getByLabelText("Ad Soyad"), "Ayşe Yıldırım");
@@ -60,23 +74,14 @@ test("shows who invited the accountant, and registers with the accountant role",
   );
 });
 
-test("shows who invited the client, and registers with the client role", async () => {
-  mocked.getInviteInfo.mockResolvedValue({
-    invited_email: "mukellef@test.com",
-    client_name: "Deniz Mali Müşavirlik",
-    inviter_name: "Deniz Mali Müşavirlik",
-    inviter_role: "accountant",
-    invited_role: "client",
-  });
+test("not signed in: registers a client invited by an accountant", async () => {
+  mocked.getInviteInfo.mockResolvedValue(accountantInvitesClient);
   mockSignUp.mockResolvedValue({ id: "u2", role: "client" });
   renderScreen();
 
   await waitFor(() =>
-    expect(
-      screen.getByText("Deniz Mali Müşavirlik sizi mükellefi olarak davet etti."),
-    ).toBeOnTheScreen(),
+    expect(screen.getByText("Deniz Mali Müşavirlik sizi Fişlik'e davet etti")).toBeOnTheScreen(),
   );
-  expect(screen.getByDisplayValue("mukellef@test.com")).toBeOnTheScreen();
 
   fireEvent.changeText(screen.getByLabelText("Ad Soyad"), "Can Yıldız");
   fireEvent.changeText(screen.getByLabelText("Şifre"), "password123");
@@ -93,14 +98,8 @@ test("shows who invited the client, and registers with the client role", async (
   );
 });
 
-test("rejects a short password without calling signUp", async () => {
-  mocked.getInviteInfo.mockResolvedValue({
-    invited_email: "muhasebeci@test.com",
-    client_name: "Selin Ticaret",
-    inviter_name: "Selin Ticaret",
-    inviter_role: "client",
-    invited_role: "accountant",
-  });
+test("not signed in: rejects a short password without calling signUp", async () => {
+  mocked.getInviteInfo.mockResolvedValue(clientInvitesAccountant);
   renderScreen();
 
   await waitFor(() => expect(screen.getByLabelText("Ad Soyad")).toBeOnTheScreen());
@@ -114,10 +113,61 @@ test("rejects a short password without calling signUp", async () => {
   expect(mockSignUp).not.toHaveBeenCalled();
 });
 
-test("surfaces an expired invite", async () => {
-  mocked.getInviteInfo.mockRejectedValue(new Error("gone"));
+test("signed in with the matching role: accepts with one tap via acceptInviteByToken, never signUp", async () => {
+  mockUseAuth.mockReturnValue({
+    signUp: mockSignUp,
+    status: "authed",
+    user: { id: "u3", role: "accountant", full_name: "Ayşe Yıldırım" },
+  });
+  mocked.getInviteInfo.mockResolvedValue(clientInvitesAccountant);
+  mocked.acceptInviteByToken.mockResolvedValue({} as endpoints.GrantOut);
   renderScreen();
+
   await waitFor(() =>
-    expect(screen.getByText("Bu davet geçersiz veya süresi dolmuş.")).toBeOnTheScreen(),
+    expect(
+      screen.getByText(
+        "Ayşe Yıldırım olarak giriş yapmış durumdasınız — daveti tek tıkla kabul edebilirsiniz.",
+      ),
+    ).toBeOnTheScreen(),
   );
+
+  fireEvent.press(screen.getByText("Daveti Kabul Et"));
+
+  await waitFor(() => expect(mocked.acceptInviteByToken).toHaveBeenCalledWith("inv-123"));
+  expect(mockSignUp).not.toHaveBeenCalled();
+});
+
+test("signed in with the wrong role: explains the mismatch and offers no accept button", async () => {
+  mockUseAuth.mockReturnValue({
+    signUp: mockSignUp,
+    status: "authed",
+    user: { id: "u4", role: "client", full_name: "Can Yıldız" },
+  });
+  mocked.getInviteInfo.mockResolvedValue(clientInvitesAccountant);
+  renderScreen();
+
+  await waitFor(() =>
+    expect(
+      screen.getByText(
+        "Bu davet bir muhasebeci hesabı için; şu an mükellef hesabıyla giriş yapmış durumdasınız.",
+      ),
+    ).toBeOnTheScreen(),
+  );
+  expect(screen.queryByText("Daveti Kabul Et")).toBeNull();
+  expect(mocked.acceptInviteByToken).not.toHaveBeenCalled();
+});
+
+test("shows a not-found state for a missing invite", async () => {
+  mocked.getInviteInfo.mockRejectedValue(new ApiError(404, "not found"));
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("Davet bulunamadı")).toBeOnTheScreen());
+  expect(
+    screen.getByText("Bu davet bağlantısı geçersiz veya süresi dolmuş olabilir."),
+  ).toBeOnTheScreen();
+});
+
+test("shows a load-failed state for a transient error", async () => {
+  mocked.getInviteInfo.mockRejectedValue(new Error("network blip"));
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("Davet yüklenemedi")).toBeOnTheScreen());
 });

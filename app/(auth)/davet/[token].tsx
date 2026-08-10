@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { useLocalSearchParams, router } from "expo-router";
-import { useQuery } from "@tanstack/react-query";
-import { Users } from "lucide-react-native";
+import { router, useLocalSearchParams } from "expo-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { CircleAlert, SearchX, Users } from "lucide-react-native";
 import { StyleSheet, Text, View } from "react-native";
-import { getInviteInfo, type InviteInfoOut } from "@/src/api/endpoints";
+import { ApiError } from "@/src/api/client";
+import { acceptInviteByToken, getInviteInfo, type InviteInfoOut } from "@/src/api/endpoints";
+import type { UserOut } from "@/src/api/endpoints";
 import { useAuth } from "@/src/auth/AuthProvider";
 import { AuthShell } from "@/src/auth/AuthShell";
 import { apiErrorMessage } from "@/src/lib/errors";
@@ -16,29 +18,44 @@ import { text } from "@/src/theme/typography";
 const MIN_PASSWORD_LENGTH = 8;
 
 /**
- * Invitations run in both directions — a client can invite an accountant, or
- * an accountant can invite a client — so the headline is worded from
- * `invited_role` (who the visitor is becoming), not hardcoded to
- * "muhasebeci". `inviter_name` is the field to read; `client_name` on
- * `InviteInfoOut` is a legacy alias kept only for older API versions and
- * must not be used. Mirrors `fislik-web/src/components/IncomingInviteCard.tsx`'s
- * role-keyed phrasing, adapted to the "not signed in yet" register form
- * (`fislik-web/src/pages/InviteAcceptPage.tsx`).
+ * `inviter_name` is the field to read; `client_name` is a legacy alias kept
+ * only for older API versions, used here only as a fallback in case a
+ * response predates `inviter_name`.
  */
-function inviteHeadline(invite: InviteInfoOut): string {
-  return invite.invited_role === "accountant"
-    ? `${invite.inviter_name} sizi mali müşaviri olarak davet etti.`
-    : `${invite.inviter_name} sizi mükellefi olarak davet etti.`;
+function inviterName(invite: InviteInfoOut): string {
+  return invite.inviter_name ?? invite.client_name;
+}
+
+function homeFor(role: string): "/(accountant)" | "/(client)" {
+  return role === "accountant" ? "/(accountant)" : "/(client)";
 }
 
 /**
- * "How this visitor accepts the invite" when they are not signed in yet: the
+ * Headline is deliberately generic ("X sizi Fişlik'e davet etti"), not
+ * role-branched — invitations run in both directions, but
+ * `fislik-web/src/pages/InviteAcceptPage.tsx` (the screen this mirrors)
+ * only varies copy by role in the already-signed-in mismatch case, not in
+ * this headline. `IncomingInviteCard.tsx` is a different surface (Task 18's
+ * in-app card) with its own role-keyed copy — do not conflate the two.
+ */
+function InviteHeader({ invite, subtitle }: { invite: InviteInfoOut; subtitle: string }) {
+  return (
+    <View style={styles.header}>
+      <View style={styles.iconWrap}>
+        <Users size={20} color={tokens.color.primary} />
+      </View>
+      <View style={styles.headerText}>
+        <Text style={[text.title, styles.title]}>{`${inviterName(invite)} sizi Fişlik'e davet etti`}</Text>
+        <Text style={[text.caption, styles.subtitle]}>{subtitle}</Text>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * "How this visitor accepts the invite" when they are NOT signed in: the
  * invite doubles as a registration form, with the e-mail locked to the
- * invite and the role locked to `invited_role`. Kept as its own component,
- * separate from "who is this invite for" (`inviteHeadline` + the fetch in
- * `InviteScreen`), so Task 18's "already signed in, just consent" branch can
- * be added as a sibling component picked by `useAuth().status`, rather than
- * a rewrite of this one.
+ * invite and the role locked to `invited_role`.
  */
 function AcceptInviteByRegistering({ invite, token }: { invite: InviteInfoOut; token: string }) {
   const { signUp } = useAuth();
@@ -64,7 +81,7 @@ function AcceptInviteByRegistering({ invite, token }: { invite: InviteInfoOut; t
         role: invite.invited_role,
         invite_token: token,
       });
-      router.replace(user.role === "accountant" ? "/(accountant)" : "/(client)");
+      router.replace(homeFor(user.role));
     } catch (err) {
       setError(apiErrorMessage(err));
     } finally {
@@ -74,15 +91,7 @@ function AcceptInviteByRegistering({ invite, token }: { invite: InviteInfoOut; t
 
   return (
     <>
-      <View style={styles.header}>
-        <View style={styles.iconWrap}>
-          <Users size={20} color={tokens.color.primary} />
-        </View>
-        <View style={styles.headerText}>
-          <Text style={[text.title, styles.title]}>{inviteHeadline(invite)}</Text>
-          <Text style={[text.caption, styles.subtitle]}>Hesabınızı oluşturarak daveti kabul edin.</Text>
-        </View>
-      </View>
+      <InviteHeader invite={invite} subtitle="Hesabınızı oluşturarak daveti kabul edin." />
 
       {error ? <ErrorCard message={error} /> : null}
 
@@ -102,15 +111,115 @@ function AcceptInviteByRegistering({ invite, token }: { invite: InviteInfoOut; t
 }
 
 /**
+ * "How this visitor accepts the invite" when they are ALREADY signed in:
+ * no registration needed, just consent via `POST /grants/invite/{token}/accept`.
+ * When the signed-in role doesn't match `invited_role`, there is nothing to
+ * accept — explain why instead of offering a dead-end button.
+ */
+function AcceptInviteByConsenting({
+  invite,
+  token,
+  user,
+}: {
+  invite: InviteInfoOut;
+  token: string;
+  user: UserOut;
+}) {
+  const queryClient = useQueryClient();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const roleMatches = user.role === invite.invited_role;
+  const mismatchMessage =
+    invite.invited_role === "accountant"
+      ? "Bu davet bir muhasebeci hesabı için; şu an mükellef hesabıyla giriş yapmış durumdasınız."
+      : "Bu davet bir mükellef hesabı için; şu an muhasebeci hesabıyla giriş yapmış durumdasınız.";
+
+  async function handleAccept() {
+    setError(null);
+    setLoading(true);
+    try {
+      await acceptInviteByToken(token);
+      await queryClient.invalidateQueries({ queryKey: ["grants"] });
+      router.replace(homeFor(user.role));
+    } catch (err) {
+      setError(
+        apiErrorMessage(err, { 404: "Bu davet size ait görünmüyor veya artık geçerli değil." }),
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <>
+      <InviteHeader
+        invite={invite}
+        subtitle={
+          roleMatches
+            ? `${user.full_name} olarak giriş yapmış durumdasınız — daveti tek tıkla kabul edebilirsiniz.`
+            : mismatchMessage
+        }
+      />
+
+      {error ? <ErrorCard message={error} /> : null}
+
+      {roleMatches ? (
+        <Button
+          title={loading ? "Kabul ediliyor…" : "Daveti Kabul Et"}
+          onPress={handleAccept}
+          disabled={loading}
+        />
+      ) : (
+        <Button
+          title="Ana sayfaya dön"
+          variant="secondary"
+          onPress={() => router.replace(homeFor(user.role))}
+        />
+      )}
+    </>
+  );
+}
+
+function NotFoundState() {
+  return (
+    <View style={styles.stateCard}>
+      <View style={styles.iconWrapCentered}>
+        <SearchX size={26} color={tokens.color.primary} />
+      </View>
+      <Text style={[text.title, styles.stateTitle]}>Davet bulunamadı</Text>
+      <Text style={[text.caption, styles.stateSubtitle]}>
+        Bu davet bağlantısı geçersiz veya süresi dolmuş olabilir.
+      </Text>
+      <Button title="Kayıt sayfasına git" onPress={() => router.replace("/kayit")} />
+    </View>
+  );
+}
+
+function LoadFailedState({ onRetry }: { onRetry: () => void }) {
+  return (
+    <View style={styles.stateCard}>
+      <View style={styles.iconWrapCentered}>
+        <CircleAlert size={26} color={tokens.color.primary} />
+      </View>
+      <Text style={[text.title, styles.stateTitle]}>Davet yüklenemedi</Text>
+      <Text style={[text.caption, styles.stateSubtitle]}>Lütfen tekrar deneyin.</Text>
+      <Button title="Tekrar dene" variant="secondary" onPress={onRetry} />
+    </View>
+  );
+}
+
+/**
  * `/davet/:token`, opened from the invitation e-mail's deep link (see
  * `app.config.ts`'s associated domains / intent filters). Fetches the
  * invite once ("who is this invite for") and hands the result to whichever
- * component knows "how this visitor accepts it" — today that's always
- * `AcceptInviteByRegistering`, since Task 7 predates the already-signed-in
- * consent path Task 18 adds.
+ * component knows "how this visitor accepts it": `AcceptInviteByConsenting`
+ * for an already-signed-in visitor, `AcceptInviteByRegistering` otherwise —
+ * both branch on the shared `invite` data, not a rewrite of one another.
  */
 export default function InviteScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
+  const { status, user } = useAuth();
 
   const inviteQuery = useQuery({
     queryKey: ["invite", token],
@@ -118,15 +227,27 @@ export default function InviteScreen() {
     retry: false,
   });
 
+  function renderContent() {
+    if (inviteQuery.isLoading) return null;
+
+    if (!inviteQuery.data) {
+      // A 404 means the invite genuinely doesn't exist (or was already
+      // used) — a dead end. Any other failure (network blip, 5xx) is
+      // transient and gets a retry affordance instead.
+      const notFound = inviteQuery.error instanceof ApiError && inviteQuery.error.status === 404;
+      return notFound ? <NotFoundState /> : <LoadFailedState onRetry={() => inviteQuery.refetch()} />;
+    }
+
+    if (status === "authed" && user) {
+      return <AcceptInviteByConsenting invite={inviteQuery.data} token={token ?? ""} user={user} />;
+    }
+
+    return <AcceptInviteByRegistering invite={inviteQuery.data} token={token ?? ""} />;
+  }
+
   return (
     <AuthShell>
-      <View style={styles.card}>
-        {inviteQuery.isError ? (
-          <ErrorCard message="Bu davet geçersiz veya süresi dolmuş." />
-        ) : inviteQuery.data ? (
-          <AcceptInviteByRegistering invite={inviteQuery.data} token={token ?? ""} />
-        ) : null}
-      </View>
+      <View style={styles.card}>{renderContent()}</View>
     </AuthShell>
   );
 }
@@ -152,4 +273,16 @@ const styles = StyleSheet.create({
   headerText: { flex: 1 },
   title: { color: tokens.color.ink },
   subtitle: { marginTop: tokens.space(1), color: tokens.color.inkSoft },
+  stateCard: { alignItems: "center", gap: tokens.space(2) },
+  iconWrapCentered: {
+    width: 56,
+    height: 56,
+    borderRadius: tokens.radius.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: tokens.color.surface,
+    marginBottom: tokens.space(1),
+  },
+  stateTitle: { color: tokens.color.ink, textAlign: "center" },
+  stateSubtitle: { color: tokens.color.inkSoft, textAlign: "center" },
 });
