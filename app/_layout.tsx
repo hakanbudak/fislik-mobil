@@ -9,6 +9,7 @@ import { useFonts } from "expo-font";
 import { Slot, SplashScreen } from "expo-router";
 import { useEffect, useState } from "react";
 import { queryKeys } from "@/src/api/queryKeys";
+import { AuthProvider } from "@/src/auth/AuthProvider";
 import { startWorker } from "@/src/upload/worker";
 
 SplashScreen.preventAutoHideAsync();
@@ -47,8 +48,9 @@ export default function RootLayout() {
   if (!loaded) return null;
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Task 5 mounts <AuthProvider> here, wrapping <Slot /> once auth lands. */}
-      <Slot />
+      <AuthProvider>
+        <Slot />
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

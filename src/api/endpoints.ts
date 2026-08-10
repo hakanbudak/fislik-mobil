@@ -1,6 +1,10 @@
 import { apiFetch } from "./client";
 import type { components } from "./generated/schema";
 
+export type UserOut = components["schemas"]["UserOut"];
+export type AuthOut = components["schemas"]["AuthOut"];
+export type Role = "client" | "accountant";
+
 export type UploadOut = components["schemas"]["UploadOut"];
 export type ReceiptOut = components["schemas"]["ReceiptOut"];
 export type SummaryOut = components["schemas"]["SummaryOut"];
@@ -106,4 +110,51 @@ export function changePeriod(receiptId: string, period: string): Promise<Receipt
 
 export function deleteReceipt(receiptId: string): Promise<void> {
   return apiFetch<void>(`/receipts/${receiptId}`, { method: "DELETE" });
+}
+
+/**
+ * Auth endpoints. `login`/`register` return `AuthOut` — the full user plus a
+ * raw `access_token` — because native has no usable cookie jar; the server
+ * also sets a cookie alongside the token, but mobile ignores it and persists
+ * `access_token` itself via `AuthProvider`'s `saveSession` call.
+ */
+export function login(data: { email: string; password: string }): Promise<AuthOut> {
+  return apiFetch<AuthOut>("/auth/login", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function register(data: {
+  email: string;
+  password: string;
+  full_name: string;
+  role: Role;
+  invite_token?: string;
+}): Promise<AuthOut> {
+  return apiFetch<AuthOut>("/auth/register", { method: "POST", body: JSON.stringify(data) });
+}
+
+/**
+ * Clears the server-side cookie only — there is no token revocation, so the
+ * caller (`AuthProvider.signOut`) must clear local storage regardless of
+ * whether this call succeeds.
+ */
+export function logout(): Promise<void> {
+  return apiFetch<void>("/auth/logout", { method: "POST" });
+}
+
+export function getMe(): Promise<UserOut> {
+  return apiFetch<UserOut>("/auth/me");
+}
+
+export function requestPasswordReset(email: string): Promise<void> {
+  return apiFetch<void>("/auth/password-reset/request", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function confirmPasswordReset(token: string, newPassword: string): Promise<void> {
+  return apiFetch<void>("/auth/password-reset/confirm", {
+    method: "POST",
+    body: JSON.stringify({ token, new_password: newPassword }),
+  });
 }
