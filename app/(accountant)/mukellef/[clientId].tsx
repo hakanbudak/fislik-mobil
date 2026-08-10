@@ -20,6 +20,7 @@ import {
   type ReceiptOut,
 } from "@/src/api/endpoints";
 import { queryKeys } from "@/src/api/queryKeys";
+import { downloadMonthZip, SharingUnavailableError } from "@/src/features/clients/downloadMonthZip";
 import { QueuedReceiptCard } from "@/src/features/receipts/QueuedReceiptCard";
 import { ReceiptCard } from "@/src/features/receipts/ReceiptCard";
 import { apiErrorMessage } from "@/src/lib/errors";
@@ -70,8 +71,17 @@ import type { QueueRecord } from "@/src/upload/queue";
  * the header (a small pill next to the month context, mirroring where the
  * web puts its lock control — right beside `MonthPicker`, not beside
  * "Fiş Yükle"/"Excel'e Aktar"). The bottom action bar is left holding only
- * the two frequent, low-consequence actions — mark-all-processed and
- * upload — grouped together as peers, with nothing consequential nearby.
+ * the frequent, low-consequence actions — mark-all-processed, upload and
+ * (Task 26) the ZIP export — grouped together as peers, with nothing
+ * consequential nearby.
+ *
+ * Task 26's "ZIP indir · tüm ay" reuses the web's own button copy for this
+ * exact action (`fislik-web/src/components/ExportModal.tsx`), rather than
+ * the brief's own "Arşivi indir" — the web is the copy source of record.
+ * Unlike the web, which wraps the whole multi-format "Excel'e Aktar" export
+ * dialog, this screen only ever exports the ZIP (see the Task 22 brief for
+ * why the export modal itself wasn't ported), so there is no format picker
+ * here — the button IS the zip export.
  */
 export default function ClientMonthScreen() {
   const {
@@ -190,6 +200,26 @@ export default function ClientMonthScreen() {
       target.processed ? unmarkProcessed(clientId, target.id) : markProcessed(clientId, target.id),
     onSuccess: invalidate,
     onError: (error) => setToast(apiErrorMessage(error)),
+  });
+
+  // Task 26: exports the month's receipts as a ZIP and hands it to the
+  // system share sheet. `downloadMonthZip` throws `ApiError(404, ...)` for
+  // an empty month — that reads as an empty state, not a failure, so it
+  // gets its own toast copy rather than going through `apiErrorMessage`
+  // (which would show its generic 404 default, "Kayıt bulunamadı").
+  // `SharingUnavailableError` is likewise not an HTTP failure and needs its
+  // own branch; anything else is a genuine download failure.
+  const zipMutation = useMutation({
+    mutationFn: () => downloadMonthZip(clientId, period),
+    onError: (error) => {
+      if (error instanceof SharingUnavailableError) {
+        setToast(error.message);
+      } else if (error instanceof ApiError && error.status === 404) {
+        setToast("Bu ay için indirilecek fiş yok");
+      } else {
+        setToast(apiErrorMessage(error));
+      }
+    },
   });
 
   const receipts = receiptsQuery.data ?? [];
@@ -369,6 +399,13 @@ export default function ClientMonthScreen() {
         ) : null}
 
         <Button title="Fiş Yükle" variant="secondary" onPress={openCamera} />
+        <Button
+          title="ZIP indir · tüm ay"
+          variant="secondary"
+          onPress={() => zipMutation.mutate()}
+          loading={zipMutation.isPending}
+          busyTitle="İndiriliyor…"
+        />
         <Text style={[text.caption, styles.creditNote]}>
           Muhasebeci olarak yüklediğiniz fişler bu mükellefin ayına eklenir ve analiz kredisi sizin
           hesabınızdan düşülür.

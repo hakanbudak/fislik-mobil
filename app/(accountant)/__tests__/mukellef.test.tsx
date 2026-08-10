@@ -1,9 +1,11 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import ClientMonthScreen from "../mukellef/[clientId]";
+import { ApiError } from "@/src/api/client";
 import * as endpoints from "@/src/api/endpoints";
 import type { CompanyOut, ReceiptOut } from "@/src/api/endpoints";
 import { queryKeys } from "@/src/api/queryKeys";
+import { downloadMonthZip, SharingUnavailableError } from "@/src/features/clients/downloadMonthZip";
 import { createTestQueryClient } from "@/src/test/queryClient";
 import * as queue from "@/src/upload/queue";
 import type { QueueRecord } from "@/src/upload/queue";
@@ -18,6 +20,12 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 jest.mock("@/src/upload/queue");
 jest.mock("@/src/upload/worker", () => ({ drainOnce: jest.fn() }));
 jest.mock("@/src/api/endpoints");
+// Keep the real `SharingUnavailableError` class (the screen's `instanceof`
+// check needs the same identity), mock only the download/share function.
+jest.mock("@/src/features/clients/downloadMonthZip", () => ({
+  ...jest.requireActual("@/src/features/clients/downloadMonthZip"),
+  downloadMonthZip: jest.fn(),
+}));
 jest.mock("expo-router", () => ({
   router: { push: jest.fn(), back: jest.fn(), setParams: jest.fn() },
   useLocalSearchParams: jest.fn(),
@@ -25,6 +33,7 @@ jest.mock("expo-router", () => ({
 
 const mocked = endpoints as jest.Mocked<typeof endpoints>;
 const mockedQueue = queue as jest.Mocked<typeof queue>;
+const mockedDownloadMonthZip = downloadMonthZip as jest.Mock;
 const { router, useLocalSearchParams } = jest.requireMock("expo-router") as {
   router: { push: jest.Mock; back: jest.Mock; setParams: jest.Mock };
   useLocalSearchParams: jest.Mock;
@@ -387,6 +396,53 @@ describe("month locking", () => {
     fireEvent.press(screen.getByText("Ayı Kapat"));
     await waitFor(() => expect(screen.getByText(/kapatılsın mı/)).toBeOnTheScreen());
     fireEvent.press(screen.getByText("Ayı Kapat"));
+
+    await waitFor(() => expect(screen.getByText("Bir şeyler ters gitti. Lütfen tekrar dene.")).toBeOnTheScreen());
+  });
+});
+
+describe("exporting the month as a ZIP (Task 26)", () => {
+  test("tapping the export button triggers the download-and-share flow", async () => {
+    mocked.clientReceipts.mockResolvedValue([]);
+    mockedDownloadMonthZip.mockResolvedValue(undefined);
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("ZIP indir · tüm ay")).toBeOnTheScreen());
+
+    fireEvent.press(screen.getByText("ZIP indir · tüm ay"));
+
+    await waitFor(() => expect(mockedDownloadMonthZip).toHaveBeenCalledWith("c1", "2026-08"));
+  });
+
+  test("an empty month (404) shows the empty-state message, not a generic error", async () => {
+    mocked.clientReceipts.mockResolvedValue([]);
+    mockedDownloadMonthZip.mockRejectedValue(new ApiError(404, "No receipts for this period"));
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("ZIP indir · tüm ay")).toBeOnTheScreen());
+
+    fireEvent.press(screen.getByText("ZIP indir · tüm ay"));
+
+    await waitFor(() => expect(screen.getByText("Bu ay için indirilecek fiş yok")).toBeOnTheScreen());
+    expect(screen.queryByText("Kayıt bulunamadı.")).toBeNull();
+  });
+
+  test("an unavailable share sheet is reported with its own message", async () => {
+    mocked.clientReceipts.mockResolvedValue([]);
+    mockedDownloadMonthZip.mockRejectedValue(new SharingUnavailableError());
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("ZIP indir · tüm ay")).toBeOnTheScreen());
+
+    fireEvent.press(screen.getByText("ZIP indir · tüm ay"));
+
+    await waitFor(() => expect(screen.getByText("Bu cihazda dosya paylaşımı kullanılamıyor")).toBeOnTheScreen());
+  });
+
+  test("a generic download failure falls back to apiErrorMessage", async () => {
+    mocked.clientReceipts.mockResolvedValue([]);
+    mockedDownloadMonthZip.mockRejectedValue(new ApiError(0, "Arşiv indirilemedi"));
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("ZIP indir · tüm ay")).toBeOnTheScreen());
+
+    fireEvent.press(screen.getByText("ZIP indir · tüm ay"));
 
     await waitFor(() => expect(screen.getByText("Bir şeyler ters gitti. Lütfen tekrar dene.")).toBeOnTheScreen());
   });

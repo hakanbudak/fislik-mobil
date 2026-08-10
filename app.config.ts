@@ -39,6 +39,7 @@ const config: ExpoConfig = {
     "expo-secure-store",
     ["expo-camera", { cameraPermission: "Fişlerinizi fotoğraflamak için kamera erişimi gerekiyor." }],
     ["expo-image-picker", { photosPermission: "Galerinizden fiş seçebilmek için fotoğraf erişimi gerekiyor." }],
+    "expo-sharing",
   ],
   extra: { apiUrl: process.env.EXPO_PUBLIC_API_URL },
 };
