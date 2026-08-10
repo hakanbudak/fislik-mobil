@@ -38,12 +38,13 @@ import { text } from "@/src/theme/typography";
  * phone than an inline form; the wording is faithful, only the container
  * differs. Do not "fix" this toward the web.
  *
- * Tapping a client pushes to `/(accountant)/mukellef/${client_id}` with the
- * currently viewed `period` as a query param — that route is Task 22's
- * per-client month view and does not exist yet, so this push 404s inside
- * expo-router until that task lands. That is expected and intentionally
- * left unstubbed per this task's scope; no placeholder screen is created
- * here.
+ * Tapping a client pushes to `/(accountant)/mukellef/[clientId]` with the
+ * currently viewed `period` and the client's `full_name` as route params.
+ * `full_name` mirrors the web's `AccountantClientsPage.tsx` navigating with
+ * `state: { fullName: client.full_name, period }` — Expo Router has no
+ * router-state equivalent, so the name travels as a plain param instead;
+ * the month screen (Task 22) reads it to paint its header immediately,
+ * without waiting on its own company fetch.
  */
 export default function AccountantClientsScreen() {
   const [period, setPeriod] = useState(currentPeriod());
@@ -86,7 +87,12 @@ export default function AccountantClientsScreen() {
         <ClientCard
           key={client.client_id}
           client={client}
-          onPress={() => router.push(`/(accountant)/mukellef/${client.client_id}?period=${period}`)}
+          onPress={() =>
+            router.push({
+              pathname: "/(accountant)/mukellef/[clientId]",
+              params: { clientId: client.client_id, period, full_name: client.full_name },
+            })
+          }
         />
       ))}
     </ScrollView>

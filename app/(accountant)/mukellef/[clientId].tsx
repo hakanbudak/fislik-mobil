@@ -41,16 +41,23 @@ import { text } from "@/src/theme/typography";
  * source of truth, matching how `period` itself is read.
  *
  * Header title: the web's equivalent (`clientTitle`) prefers a name passed
- * via React Router `location.state` from the client list, falling back to
+ * via React Router `location.state` from the client list
+ * (`AccountantClientsPage.tsx` navigates with `state: { fullName:
+ * client.full_name, period }`), falling back to
  * `company?.trade_name ?? company?.full_name ?? "Mükellef"`. Expo Router has
- * no state-passing equivalent used elsewhere in this app, so this screen
- * uses only that fallback chain — the company profile is fetched here
- * anyway for the card below, so this adds no extra request. This means the
- * header briefly reads "Mükellef" until the company query resolves; that is
- * an accepted, intentional simplification, not a bug.
+ * no router-state equivalent, so `app/(accountant)/index.tsx` threads the
+ * same name through as a `full_name` route param instead — this screen
+ * prefers that param so the header paints the real name on first frame, no
+ * flash, and only falls back to the company query's chain for a deep link
+ * or cold start where the param is absent (matching the web's own fallback
+ * order beyond its state).
  */
 export default function ClientMonthScreen() {
-  const { clientId, period: periodParam } = useLocalSearchParams<{ clientId: string; period?: string }>();
+  const {
+    clientId,
+    period: periodParam,
+    full_name: fullNameParam,
+  } = useLocalSearchParams<{ clientId: string; period?: string; full_name?: string }>();
   const period = periodParam ?? currentPeriod();
   const queryClient = useQueryClient();
 
@@ -83,7 +90,7 @@ export default function ClientMonthScreen() {
     retry: false,
   });
   const company = companyQuery.data ?? null;
-  const clientTitle = company?.trade_name ?? company?.full_name ?? "Mükellef";
+  const clientTitle = fullNameParam ?? company?.trade_name ?? company?.full_name ?? "Mükellef";
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: queryKeys.clientReceipts(clientId, period) });
@@ -149,10 +156,7 @@ export default function ClientMonthScreen() {
       ) : null}
 
       {receiptsQuery.isSuccess && receipts.length === 0 ? (
-        <EmptyState
-          title="Bu ay için fiş yüklenmemiş"
-          description="Bu mükellef bu ay için henüz fiş yüklemedi."
-        />
+        <EmptyState title="Bu ay fiş yok" description="Bu mükellef bu ay için henüz fiş yüklemedi." />
       ) : null}
 
       {receiptsQuery.isSuccess && receipts.length > 0 ? (

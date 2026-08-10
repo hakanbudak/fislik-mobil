@@ -83,7 +83,20 @@ test("expands the company card to show full details on tap", async () => {
 test("shows the empty state when the client has no receipts this month", async () => {
   mocked.clientReceipts.mockResolvedValue([]);
   renderScreen();
-  await waitFor(() => expect(screen.getByText("Bu ay için fiş yüklenmemiş")).toBeOnTheScreen());
+  await waitFor(() => expect(screen.getByText("Bu ay fiş yok")).toBeOnTheScreen());
+});
+
+test("shows the passed client name immediately, without waiting for the company query", async () => {
+  mocked.clientReceipts.mockResolvedValue([]);
+  // Never resolves — proves the header doesn't wait on this query at all.
+  mocked.getClientCompany.mockReturnValue(new Promise(() => {}));
+  useLocalSearchParams.mockReturnValue({ clientId: "c1", period: "2026-08", full_name: "Deniz Ticaret" });
+  renderScreen();
+  expect(screen.getByText("Deniz Ticaret")).toBeOnTheScreen();
+  // Let the (resolved) receipts query settle too, so its state update lands
+  // inside this test's act() scope instead of leaking into the next one.
+  await waitFor(() => expect(mocked.clientReceipts).toHaveBeenCalled());
+  await waitFor(() => expect(screen.getByText("Bu ay fiş yok")).toBeOnTheScreen());
 });
 
 test("shows 'Tümünü işlendi yap' when any receipt is unprocessed", async () => {

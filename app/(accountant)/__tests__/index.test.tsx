@@ -83,10 +83,13 @@ test("shows an incoming invitation", async () => {
   await waitFor(() => expect(screen.getByText("Kabul Et")).toBeOnTheScreen());
 });
 
-test("navigates to the client's month view with the current period", async () => {
+test("navigates to the client's month view with the current period and the client's name", async () => {
   mocked.listClients.mockResolvedValue([client]);
   renderScreen();
   await waitFor(() => expect(screen.getByText("Ayşe Yıldırım")).toBeOnTheScreen());
   fireEvent.press(screen.getByText("Ayşe Yıldırım"));
-  expect(router.push).toHaveBeenCalledWith(expect.stringContaining("/(accountant)/mukellef/c1"));
+  expect(router.push).toHaveBeenCalledWith({
+    pathname: "/(accountant)/mukellef/[clientId]",
+    params: { clientId: "c1", period: expect.any(String), full_name: "Ayşe Yıldırım" },
+  });
 });
