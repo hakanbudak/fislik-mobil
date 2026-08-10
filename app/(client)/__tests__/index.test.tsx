@@ -1,8 +1,9 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import HomeScreen from "../index";
 import * as endpoints from "@/src/api/endpoints";
 import { currentPeriod, shiftPeriod } from "@/src/lib/period";
+import { createTestQueryClient } from "@/src/test/queryClient";
 
 jest.mock("@/src/api/endpoints");
 jest.mock("expo-router", () => ({ router: { push: jest.fn() }, Link: ({ children }: never) => children }));
@@ -21,7 +22,7 @@ const summary = {
 };
 
 function renderScreen() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = createTestQueryClient();
   return render(
     <QueryClientProvider client={client}>
       <HomeScreen />

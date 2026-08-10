@@ -50,12 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // user lands on the login screen instead of a permanently failing session.
   useEffect(() => {
     if (me.error instanceof ApiError && me.error.status === 401) {
-      // `await` (rather than `.then`) so this holds even against a mock that
-      // returns `undefined` instead of a promise.
-      void (async () => {
-        await clearSession();
-        setHasToken(false);
-      })();
+      void clearSession().then(() => setHasToken(false));
     }
   }, [me.error]);
 

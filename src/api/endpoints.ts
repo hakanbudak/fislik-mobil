@@ -3,6 +3,11 @@ import type { components } from "./generated/schema";
 
 export type UserOut = components["schemas"]["UserOut"];
 export type AuthOut = components["schemas"]["AuthOut"];
+// Hand-declared, not generated: the OpenAPI schema types UserOut.role (and
+// RegisterIn.role) as a bare `string`, so there's nothing to pull this union
+// from. This is a deliberate, temporary exception to "API payload types are
+// never hand-written" — replace it with a generated type if the backend
+// ever tightens that schema to a Literal/enum.
 export type Role = "client" | "accountant";
 
 export type UploadOut = components["schemas"]["UploadOut"];

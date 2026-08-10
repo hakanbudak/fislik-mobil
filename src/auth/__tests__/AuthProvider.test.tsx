@@ -1,10 +1,11 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react-native";
 import { Text } from "react-native";
 import { AuthProvider, useAuth } from "../AuthProvider";
 import * as endpoints from "@/src/api/endpoints";
 import * as session from "../session";
 import { ApiError } from "@/src/api/client";
+import { createTestQueryClient } from "@/src/test/queryClient";
 
 jest.mock("@/src/api/endpoints");
 jest.mock("../session");
@@ -18,7 +19,7 @@ function Probe() {
 }
 
 function renderProbe() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = createTestQueryClient();
   return render(
     <QueryClientProvider client={client}>
       <AuthProvider>
@@ -28,7 +29,14 @@ function renderProbe() {
   );
 }
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  // Jest's automock returns `undefined` from every mocked function, but the
+  // real clearSession() returns a Promise<void> — honour that contract so
+  // production code that awaits it isn't tested against a shape it will
+  // never see for real.
+  mockedSession.clearSession.mockResolvedValue(undefined);
+});
 
 test("reports anon when no token is stored", async () => {
   mockedSession.loadSession.mockResolvedValue(null);
