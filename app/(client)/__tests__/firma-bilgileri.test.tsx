@@ -1,6 +1,7 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { router } from "expo-router";
+import { KeyboardAvoidingView, Platform, ScrollView } from "react-native";
 import FirmaBilgileriScreen from "../firma-bilgileri";
 import * as endpoints from "@/src/api/endpoints";
 import type { CompanyOut } from "@/src/api/endpoints";
@@ -198,4 +199,23 @@ test("pressing the skip button leaves for the client home without saving", async
 
   expect(mockedRouter.replace).toHaveBeenCalledWith("/(client)");
   expect(mocked.saveCompany).not.toHaveBeenCalled();
+});
+
+test("wraps the form in a KeyboardAvoidingView with the platform-correct behavior, like AuthShell", async () => {
+  mocked.getCompany.mockResolvedValue(existingCompany);
+  renderScreen();
+
+  await waitFor(() => expect(screen.getByDisplayValue("Ayşe Yıldırım")).toBeOnTheScreen());
+  const avoider = screen.UNSAFE_getByType(KeyboardAvoidingView);
+  expect(avoider.props.behavior).toBe(Platform.OS === "ios" ? "padding" : undefined);
+});
+
+test("lets a scroll gesture dismiss the keyboard, since no field is a return-key chain", async () => {
+  mocked.getCompany.mockResolvedValue(existingCompany);
+  renderScreen();
+
+  await waitFor(() => expect(screen.getByDisplayValue("Ayşe Yıldırım")).toBeOnTheScreen());
+  const scrollView = screen.UNSAFE_getByType(ScrollView);
+  expect(scrollView.props.keyboardDismissMode).toBe("on-drag");
+  expect(scrollView.props.keyboardShouldPersistTaps).toBe("handled");
 });

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ApiError } from "@/src/api/client";
 import { getCompany, saveCompany, type CompanyIn } from "@/src/api/endpoints";
 import { queryKeys } from "@/src/api/queryKeys";
@@ -92,6 +92,16 @@ function toPayload(form: FormState): CompanyIn {
  * A 404 from `GET /company` means the profile was never filled in, not an
  * error: the query resolves to `null` and the form simply renders empty,
  * same pattern as `useMe`'s 401 handling elsewhere in this app.
+ *
+ * Ten fields deep with `İş Yeri Adresi` last, so the software keyboard can
+ * easily cover whatever's focused — wrapped in the same
+ * `KeyboardAvoidingView` + `ScrollView` pairing `src/auth/AuthShell.tsx`
+ * already uses (and `kayit.tsx`/`davet/[token].tsx` inherit through it),
+ * rather than a third variant of the same fix. `keyboardDismissMode="on-drag"`
+ * is the one addition beyond that pattern: AuthShell's forms are short
+ * enough that `keyboardShouldPersistTaps="handled"` alone leaves the submit
+ * button reachable without dismissing first, but this form is long enough
+ * that a plain scroll gesture should also be able to put the keyboard away.
  */
 export default function FirmaBilgileriScreen() {
   const { onboarding } = useLocalSearchParams<{ onboarding?: string }>();
@@ -163,7 +173,10 @@ export default function FirmaBilgileriScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
       <View style={styles.header}>
         <Text style={[text.title, styles.title]}>Firma Bilgileri</Text>
         <Text style={[text.caption, styles.subtitle]}>
@@ -182,7 +195,11 @@ export default function FirmaBilgileriScreen() {
       ) : null}
 
       {!companyQuery.isLoading && !companyQuery.isError ? (
-        <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={styles.form}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
           <Input
             label="Adı Soyadı"
             value={form.full_name}
@@ -278,7 +295,7 @@ export default function FirmaBilgileriScreen() {
           ) : null}
         </ScrollView>
       ) : null}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
