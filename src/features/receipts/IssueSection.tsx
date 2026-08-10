@@ -11,21 +11,27 @@ import { tokens } from "@/src/theme/tokens";
 import { text } from "@/src/theme/typography";
 
 /**
- * The accountant's issue-reporting channel on a receipt's detail screen —
- * "this one is unreadable" / "this belongs to another month". Mirrors the
- * shape of `fislik-web`'s two separate pieces: `AccountantMonthPage`'s
- * "Sorun bildir" modal (open) and `ReceiptDrawer`'s open-issue card (the
- * "AÇIK SORUN · {author} · {date}" copy this card's header borrows), plus
- * `ReceiptDetailPage`'s "Çözüldü olarak işaretle" resolve action — on web
- * that resolve button lives on the CLIENT's own screen (the client marks
- * their accountant's issue fixed), but this task's interface puts both open
- * and resolve on the accountant's screen instead, so one component owns
- * the full lifecycle here.
+ * The issue-reporting/resolution channel on a receipt's detail screen —
+ * "this one is unreadable" / "this belongs to another month". Mirrors
+ * `fislik-web`'s pieces: `AccountantMonthPage`'s "Sorun bildir" modal (open)
+ * and `ReceiptDrawer`'s open-issue card (the "AÇIK SORUN · {author} ·
+ * {date}" copy this card's header borrows).
+ *
+ * `onResolve` is deliberately OPTIONAL, not a design choice this component
+ * gets to make on its own: `fislik-api/app/modules/issues/router.py` gates
+ * `open_issue` to `AccountantUser` and `resolve_issue` to `ClientUser` (plus
+ * an ownership check) — an accountant calling resolve gets a 403, always.
+ * So the accountant's screen renders this component WITHOUT `onResolve`
+ * (report-only); a client-facing screen wanting the resolve action would
+ * pass `onResolve` and omit reporting UI entirely (there is currently no
+ * such screen — `app/(client)/fis/[id].tsx` implements its own resolve
+ * button directly rather than going through this component, since it has
+ * no reporting UI to share with the accountant's "Sorun bildir" flow).
  *
  * Owns its own composer/submit/resolve state and turns a rejected
  * `onOpen`/`onResolve` into inline Turkish copy via `apiErrorMessage` —
  * same division of labour as `ExtractionEditor`'s `onSave`. The caller only
- * has to supply the two API calls and invalidate its queries on success.
+ * has to supply the API call(s) and invalidate its queries on success.
  */
 export function IssueSection({
   issue,
@@ -34,7 +40,7 @@ export function IssueSection({
 }: {
   issue: IssueOut | null;
   onOpen: (message: string) => void | Promise<void>;
-  onResolve: () => void | Promise<void>;
+  onResolve?: () => void | Promise<void>;
 }) {
   const [composerOpen, setComposerOpen] = useState(false);
   const [message, setMessage] = useState("");
@@ -74,6 +80,7 @@ export function IssueSection({
   }
 
   async function handleResolve() {
+    if (!onResolve) return;
     setResolveError(null);
     setResolving(true);
     try {
@@ -95,14 +102,18 @@ export function IssueSection({
           </Text>
         </View>
         <Text style={[text.body, styles.issueMessage]}>{issue.message}</Text>
-        {resolveError ? <Text style={[text.caption, styles.error]}>{resolveError}</Text> : null}
-        <Button
-          title="Çözüldü olarak işaretle"
-          variant="secondary"
-          onPress={handleResolve}
-          loading={resolving}
-          busyTitle="İşaretleniyor…"
-        />
+        {onResolve ? (
+          <>
+            {resolveError ? <Text style={[text.caption, styles.error]}>{resolveError}</Text> : null}
+            <Button
+              title="Çözüldü olarak işaretle"
+              variant="secondary"
+              onPress={handleResolve}
+              loading={resolving}
+              busyTitle="İşaretleniyor…"
+            />
+          </>
+        ) : null}
       </Card>
     );
   }

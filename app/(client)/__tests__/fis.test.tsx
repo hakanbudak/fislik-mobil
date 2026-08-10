@@ -136,3 +136,21 @@ test("shows the open-issue card when the receipt has one", async () => {
   renderScreen();
   await waitFor(() => expect(screen.getByText("Tutar okunamıyor")).toBeOnTheScreen());
 });
+
+test("resolves the open issue, clearing the card and invalidating the period", async () => {
+  mocked.listReceipts.mockResolvedValue([
+    {
+      ...baseReceipt,
+      open_issue: { id: "i1", message: "Tutar okunamıyor", author_name: "Muhasebeci Ayşe", created_at: "2026-08-06T10:00:00Z" },
+    },
+  ]);
+  mocked.resolveIssue.mockResolvedValue(undefined);
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("Tutar okunamıyor")).toBeOnTheScreen());
+
+  fireEvent.press(screen.getByText("Çözüldü olarak işaretle"));
+
+  await waitFor(() => expect(mocked.resolveIssue).toHaveBeenCalledWith("i1"));
+  expect(screen.queryByText("Tutar okunamıyor")).toBeNull();
+  expect(screen.queryByText("Çözüldü olarak işaretle")).toBeNull();
+});

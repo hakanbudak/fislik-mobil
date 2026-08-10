@@ -7,7 +7,6 @@ import {
   clientReceipts,
   openIssue,
   patchExtraction,
-  resolveIssue,
   retryExtraction,
   type ExtractionPatchIn,
 } from "@/src/api/endpoints";
@@ -40,8 +39,11 @@ import { tokens } from "@/src/theme/tokens";
  * - No delete / "Ayı değiştir" actions — Task 25's interfaces only call for
  *   the viewer, the editor, and the issue channel; the client's screen owns
  *   receipt lifecycle actions the accountant does not have here.
- * - `IssueSection` replaces the client's read-only inline issue card with a
- *   full open/resolve control, matching this task's interface.
+ * - `IssueSection` is rendered WITHOUT `onResolve` here — resolving is
+ *   correctness, not preference: `fislik-api/app/modules/issues/router.py`
+ *   gates `resolve_issue` to `ClientUser` (plus an ownership check), so an
+ *   accountant calling it always 403s. The client's own screen
+ *   (`app/(client)/fis/[id].tsx`) owns the resolve action instead.
  */
 export default function ReceiptDetailScreen() {
   const { clientId, id, period: periodParam } = useLocalSearchParams<{
@@ -86,14 +88,6 @@ export default function ReceiptDetailScreen() {
     onSuccess: () => {
       invalidate();
       setToast("Sorun bildirildi");
-    },
-  });
-
-  const resolveIssueMutation = useMutation({
-    mutationFn: (issueId: string) => resolveIssue(issueId),
-    onSuccess: () => {
-      invalidate();
-      setToast("Sorun çözüldü");
     },
   });
 
@@ -144,7 +138,6 @@ export default function ReceiptDetailScreen() {
           onOpen={async (message) => {
             await openIssueMutation.mutateAsync(message);
           }}
-          onResolve={() => resolveIssueMutation.mutateAsync(receipt.open_issue!.id)}
         />
 
         <ExtractionEditor

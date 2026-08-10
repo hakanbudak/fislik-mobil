@@ -120,17 +120,26 @@ test("an empty issue message does not call openIssue", async () => {
   expect(mocked.openIssue).not.toHaveBeenCalled();
 });
 
-test("shows the open issue and resolves it, invalidating the client's receipt list", async () => {
+test("shows the open issue but offers no resolve action — the API 403s an accountant's resolve call", async () => {
   mocked.clientReceipts.mockResolvedValue([
     {
       ...baseReceipt,
       open_issue: { id: "i1", message: "Tutar okunamıyor", author_name: "Muhasebeci Ayşe", created_at: "2026-08-06T10:00:00Z" },
     },
   ]);
-  mocked.resolveIssue.mockResolvedValue(undefined);
   renderScreen();
   await waitFor(() => expect(screen.getByText("Tutar okunamıyor")).toBeOnTheScreen());
-  fireEvent.press(screen.getByText("Çözüldü olarak işaretle"));
-  await waitFor(() => expect(mocked.resolveIssue).toHaveBeenCalledWith("i1"));
-  await waitFor(() => expect(mocked.clientReceipts).toHaveBeenCalledTimes(2));
+  expect(screen.queryByText("Çözüldü olarak işaretle")).toBeNull();
+});
+
+test("reporting a second issue on the same receipt shows the 409 override", async () => {
+  mocked.openIssue.mockRejectedValue(new ApiError(409, "receipt already has an open issue"));
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("Sorun bildir")).toBeOnTheScreen());
+  fireEvent.press(screen.getByText("Sorun bildir"));
+  fireEvent.changeText(screen.getByLabelText("Sorun mesajı"), "Bu fiş yine okunamıyor");
+  fireEvent.press(screen.getByText("Sorunu gönder"));
+  await waitFor(() =>
+    expect(screen.getByText("Bu fişte zaten açık bir sorun var")).toBeOnTheScreen(),
+  );
 });

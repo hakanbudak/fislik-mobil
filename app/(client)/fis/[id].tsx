@@ -10,6 +10,7 @@ import {
   listReceipts,
   patchExtraction,
   periodLockStatus,
+  resolveIssue,
   retryExtraction,
   type ExtractionPatchIn,
   type PeriodLockOut,
@@ -32,10 +33,19 @@ import { text } from "@/src/theme/typography";
 
 /**
  * Client's "Fiş detayı" screen — ported from
- * fislik-web/src/pages/ReceiptDetailPage.tsx, minus the open-issue
- * "resolve" action (not part of this task's interfaces) and the desktop
- * prev/next receipt navigation (`ReceiptViewer`'s toolbar has no mobile
- * equivalent yet).
+ * fislik-web/src/pages/ReceiptDetailPage.tsx, minus the desktop prev/next
+ * receipt navigation (`ReceiptViewer`'s toolbar has no mobile equivalent
+ * yet).
+ *
+ * Owns the open-issue "resolve" action — `fislik-api/app/modules/issues/router.py`
+ * gates `resolve_issue` to `ClientUser` (plus an ownership check), so this
+ * is the only screen in the app that is allowed to call it; the
+ * accountant's own receipt-detail screen
+ * (`app/(accountant)/mukellef/[clientId]/fis/[id].tsx`) deliberately omits
+ * it. `issueResolved` mirrors the web's own optimistic flag
+ * (`ReceiptDetailPage.tsx`'s `issueResolved` state): it hides the card the
+ * instant the mutation succeeds, without waiting on the `receipts`
+ * invalidation's refetch to land.
  *
  * There is no single-receipt API endpoint, so this screen locates the
  * receipt inside the `queryKeys.receipts(period)` list — the same query key
@@ -56,6 +66,7 @@ export default function ReceiptDetailScreen() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [changingPeriod, setChangingPeriod] = useState(false);
   const [tempPeriod, setTempPeriod] = useState(period);
+  const [issueResolved, setIssueResolved] = useState(false);
 
   const receiptsQuery = useQuery({
     queryKey: queryKeys.receipts(period),
@@ -133,6 +144,15 @@ export default function ReceiptDetailScreen() {
     onError: (error) => setToast(apiErrorMessage(error)),
   });
 
+  const resolveIssueMutation = useMutation({
+    mutationFn: (issueId: string) => resolveIssue(issueId),
+    onSuccess: () => {
+      setIssueResolved(true);
+      invalidatePeriod(period);
+    },
+    onError: (error) => setToast(apiErrorMessage(error)),
+  });
+
   if (receiptsQuery.isLoading) {
     return (
       <View style={styles.center}>
@@ -158,6 +178,7 @@ export default function ReceiptDetailScreen() {
   }
 
   const wrongMonth = mismatchedPeriod(receipt.extraction?.receipt_date ?? null, receipt.period);
+  const activeIssue = issueResolved ? null : receipt.open_issue;
 
   return (
     <View style={styles.container}>
@@ -198,14 +219,21 @@ export default function ReceiptDetailScreen() {
           </Card>
         ) : null}
 
-        {receipt.open_issue ? (
+        {activeIssue ? (
           <Card style={styles.notice}>
             <View style={styles.noticeHeader}>
               <TriangleAlert size={16} color={tokens.color.danger} />
               <Text style={[text.label, styles.issueTitle]}>Muhasebeciniz sorun bildirdi</Text>
             </View>
-            <Text style={[text.body, styles.noticeText]}>{receipt.open_issue.message}</Text>
-            <Text style={[text.caption, styles.issueAuthor]}>{receipt.open_issue.author_name}</Text>
+            <Text style={[text.body, styles.noticeText]}>{activeIssue.message}</Text>
+            <Text style={[text.caption, styles.issueAuthor]}>{activeIssue.author_name}</Text>
+            <Button
+              title="Çözüldü olarak işaretle"
+              variant="danger"
+              onPress={() => resolveIssueMutation.mutate(activeIssue.id)}
+              loading={resolveIssueMutation.isPending}
+              busyTitle="İşaretleniyor…"
+            />
           </Card>
         ) : null}
 
