@@ -7,8 +7,28 @@ const config: ExpoConfig = {
   version: "1.0.0",
   orientation: "portrait",
   userInterfaceStyle: "light",
-  ios: { bundleIdentifier: "dev.selamet.fislik", supportsTablet: false },
-  android: { package: "dev.selamet.fislik" },
+  ios: {
+    bundleIdentifier: "dev.selamet.fislik",
+    supportsTablet: false,
+    associatedDomains: ["applinks:fislik.selamet.dev"],
+  },
+  android: {
+    package: "dev.selamet.fislik",
+    intentFilters: [
+      {
+        action: "VIEW",
+        autoVerify: true,
+        data: [{ scheme: "https", host: "fislik.selamet.dev", pathPrefix: "/davet" }],
+        category: ["BROWSABLE", "DEFAULT"],
+      },
+      {
+        action: "VIEW",
+        autoVerify: true,
+        data: [{ scheme: "https", host: "fislik.selamet.dev", pathPrefix: "/sifre-sifirla" }],
+        category: ["BROWSABLE", "DEFAULT"],
+      },
+    ],
+  },
   plugins: [
     "expo-router",
     "expo-font",

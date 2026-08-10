@@ -163,3 +163,15 @@ export function confirmPasswordReset(token: string, newPassword: string): Promis
     body: JSON.stringify({ token, new_password: newPassword }),
   });
 }
+
+export type InviteInfoOut = components["schemas"]["InviteInfoOut"];
+
+/**
+ * Invitations run in both directions — a client can invite an accountant and
+ * an accountant can invite a client — so `invited_role`/`inviter_role` drive
+ * the screen, never an assumption baked in here. `client_name` is a legacy
+ * alias of `inviter_name`; callers should use `inviter_name`.
+ */
+export function getInviteInfo(token: string): Promise<InviteInfoOut> {
+  return apiFetch<InviteInfoOut>(`/grants/invite/${token}`);
+}

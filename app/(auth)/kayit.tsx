@@ -46,6 +46,10 @@ export default function RegisterScreen() {
   async function handleSubmit() {
     if (!role) return;
     setError(null);
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Şifre en az ${MIN_PASSWORD_LENGTH} karakter olmalı`);
+      return;
+    }
     setLoading(true);
     try {
       const user = await signUp({ email, password, full_name: fullName, role });

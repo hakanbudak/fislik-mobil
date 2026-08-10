@@ -26,6 +26,19 @@ test("submits the chosen role along with the rest of the form", async () => {
   );
 });
 
+test("rejects a short password without calling the API", async () => {
+  render(<RegisterScreen />);
+  fireEvent.changeText(screen.getByLabelText("Ad Soyad"), "Ayşe Yıldırım");
+  fireEvent.changeText(screen.getByLabelText("E-posta"), "ayse@test.com");
+  fireEvent.changeText(screen.getByLabelText("Şifre"), "short");
+  fireEvent.press(screen.getByText("Mükellefim"));
+  fireEvent.press(screen.getByText("Hesap oluştur"));
+  await waitFor(() =>
+    expect(screen.getByText("Şifre en az 8 karakter olmalı")).toBeOnTheScreen(),
+  );
+  expect(mockSignUp).not.toHaveBeenCalled();
+});
+
 test("shows curated Turkish copy, not the raw detail, when the email is taken", async () => {
   mockSignUp.mockRejectedValue(new ApiError(409, "email already registered"));
   render(<RegisterScreen />);
