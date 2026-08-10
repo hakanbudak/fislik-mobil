@@ -43,6 +43,28 @@ export class SharingUnavailableError extends Error {
  * than a status field but is what the current API actually exposes; no
  * `expo-file-system/legacy` fallback was needed.
  *
+ * This *was* re-checked for a structured alternative: `expo-file-system`
+ * does have one network primitive that resolves (rather than rejects) on a
+ * non-2xx response with a real numeric `status` field —
+ * `UploadTask#uploadAsync` (`node_modules/expo-file-system/src/NetworkTasks.ts`,
+ * used by `src/upload/uploader.ts`/`File#upload`). But that's the upload
+ * direction; nothing about it applies to a `GET`. The equivalent download
+ * primitive, `DownloadTask` (`File.createDownloadTask(...).downloadAsync()`,
+ * same file), was read end to end, including its native implementations
+ * (`ios/FileSystemDownloadTask.swift` line ~371:
+ * `promise.reject(UnableToDownloadException("server returned HTTP \(httpResponse.statusCode)"))`;
+ * `android/.../FileSystemDownloadTask.kt` line ~201:
+ * `throw UnableToDownloadException("HTTP ${resp.code}")`) — and it rejects
+ * with exactly the same message-only exception shape as
+ * `File.downloadFileAsync` (whose own native backends,
+ * `ios/FileSystemDownload.swift` and `android/.../FileSystemDownload.kt`,
+ * do the identical `UnableToDownloadException("response has status ...")`).
+ * Both platforms always fold the status into a free-text message, never a
+ * structured field, for every download-shaped primitive in this package.
+ * `DownloadTask` would also not change anything: it's the same
+ * message-in-an-exception contract, just reached via a task object instead
+ * of a static method.
+ *
  * `destination` is `Paths.cache` (a directory, not a fixed filename) so the
  * downloaded file is named from the response's `Content-Disposition`
  * header — the API already sets that to
@@ -60,6 +82,17 @@ export async function downloadMonthZip(clientId: string, period: string): Promis
       idempotent: true,
     });
   } catch (error) {
+    // No structured status is available here (see the module docstring) —
+    // this matches the SDK's own documented contract ("the message includes
+    // the status code"), confirmed against both native implementations:
+    // iOS's `"server returned HTTP 404"` / `"response has status 404"` and
+    // Android's `"HTTP 404"` / `"response has status: 404"`. All of those
+    // phrasings contain the status as a plain decimal token, which is what
+    // `\b404\b` pins down without over-matching (e.g. a URL substring).
+    // A future SDK release that changes this wording — or a platform that
+    // phrases it differently — would make an empty month silently look like
+    // a generic download failure instead of the correct empty-state message;
+    // there is no more precise signal to fall back on with today's API.
     if (error instanceof Error && /\b404\b/.test(error.message)) {
       throw new ApiError(404, "Bu ay için indirilecek fiş yok");
     }

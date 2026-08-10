@@ -46,11 +46,29 @@ test("downloads with the bearer header and opens the share sheet", async () => {
   );
 });
 
-test("a 404 becomes an empty-month ApiError and does not open the share sheet", async () => {
-  mockDownloadFileAsync.mockRejectedValue(new Error("UnableToDownload: server responded with status code 404"));
+// `File.downloadFileAsync` has no structured status field to read on a
+// non-2xx response (see the module docstring's investigation) — both
+// native platforms fold the status into a free-text `UnableToDownload`
+// message instead. These are the *actual* messages each platform throws
+// (read from `ios/FileSystemDownload.swift` and
+// `android/.../FileSystemDownloadTask.kt` in the installed package), not
+// invented strings — this test would fail if the detection regex stopped
+// matching real device wording, which is the exact silent-breakage risk
+// this pins down.
+test.each([
+  ["iOS, File.downloadFileAsync", "response has status 404"],
+  ["iOS, DownloadTask", "server returned HTTP 404"],
+  ["Android, File.downloadFileAsync", "response has status: 404"],
+  ["Android, DownloadTask", "HTTP 404"],
+])("a 404 (%s: %j) becomes the empty-month ApiError and does not open the share sheet", async (_platform, message) => {
+  mockDownloadFileAsync.mockRejectedValue(new Error(message));
 
   await expect(downloadMonthZip("client-1", "2026-08")).rejects.toMatchObject({
     status: 404,
+    // Pinned verbatim: the coordinator flagged this exact string as a past
+    // source of typos, so assert the literal Turkish copy, not just the
+    // status code.
+    detail: "Bu ay için indirilecek fiş yok",
   });
   expect(mockedSharing.shareAsync).not.toHaveBeenCalled();
 });
