@@ -214,3 +214,28 @@ export function declineGrant(grantId: string): Promise<void> {
 export function revokeGrant(grantId: string): Promise<void> {
   return apiFetch<void>(`/grants/${grantId}`, { method: "DELETE" });
 }
+
+export type CompanyOut = components["schemas"]["CompanyOut"];
+export type CompanyIn = components["schemas"]["CompanyIn"];
+
+/**
+ * The caller's own tax-certificate (vergi levhası) profile — read by their
+ * accountant when filing. A 404 means the profile was never filled in, not
+ * an error; callers should treat it the same way `app/(client)/firma-bilgileri.tsx`
+ * treats `useMe`'s 401 handling, i.e. resolve to `null` rather than surface
+ * a query error. Mirrors `fislik-web/src/pages/CompanyPage.tsx`.
+ */
+export function getCompany(): Promise<CompanyOut> {
+  return apiFetch<CompanyOut>("/company");
+}
+
+/** Upserts the caller's company profile — there is no separate create/update
+ *  endpoint, `PUT /company` does both. */
+export function saveCompany(data: CompanyIn): Promise<CompanyOut> {
+  return apiFetch<CompanyOut>("/company", { method: "PUT", body: JSON.stringify(data) });
+}
+
+/** An accountant's read of a specific client's company profile. */
+export function getClientCompany(clientId: string): Promise<CompanyOut> {
+  return apiFetch<CompanyOut>(`/clients/${clientId}/company`);
+}
