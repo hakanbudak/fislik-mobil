@@ -205,13 +205,13 @@ export default function ClientMonthScreen() {
   ];
 
   function openCamera() {
+    // `clientTitle`, not `fullNameParam` — the camera's on-behalf banner
+    // must show the real name even when this screen only knows it via the
+    // company query (deep link / cold start with no `full_name` param),
+    // exactly the context-loss case the banner exists for.
     router.push({
       pathname: "/(accountant)/mukellef/[clientId]/kamera",
-      params: {
-        clientId,
-        period,
-        ...(fullNameParam ? { full_name: fullNameParam } : {}),
-      },
+      params: { clientId, period, full_name: clientTitle },
     });
   }
 
@@ -297,7 +297,7 @@ export default function ClientMonthScreen() {
         </View>
       ) : null}
 
-      {receiptsQuery.isLoading ? (
+      {receiptsQuery.isLoading && rows.length === 0 ? (
         <View style={styles.center}>
           <Spinner />
         </View>
@@ -309,11 +309,20 @@ export default function ClientMonthScreen() {
         </View>
       ) : null}
 
-      {receiptsQuery.isSuccess && rows.length === 0 ? (
+      {/*
+        Queued (not-yet-uploaded) captures for this client are already on
+        disk and independent of `receiptsQuery` — they must stay visible
+        (and "Fiş Yükle" stay usable, below) even when the receipts fetch
+        is still loading or has failed. Gating this whole block on
+        `receiptsQuery.isSuccess` would make an accountant's own just-shot
+        captures disappear the moment the network hiccups, which reads as
+        data loss even though nothing was actually lost.
+      */}
+      {!receiptsQuery.isLoading && !receiptsQuery.isError && rows.length === 0 ? (
         <EmptyState title="Bu ay fiş yok" description="Bu mükellef bu ay için henüz fiş yüklemedi." />
       ) : null}
 
-      {receiptsQuery.isSuccess && rows.length > 0 ? (
+      {rows.length > 0 ? (
         <>
           {receipts.length > 0 ? (
             <Text style={[text.caption, styles.hint]}>
@@ -349,30 +358,33 @@ export default function ClientMonthScreen() {
         </>
       ) : null}
 
-      {receiptsQuery.isSuccess ? (
-        <View style={styles.actionBar}>
-          {receipts.length > 0 ? (
-            <Button
-              title={anyUnprocessed ? "Tümünü işlendi yap" : "Tümünün işaretini kaldır"}
-              onPress={() => bulkMutation.mutate(anyUnprocessed)}
-              loading={bulkMutation.isPending}
-              busyTitle="İşleniyor…"
-            />
-          ) : null}
+      <View style={styles.actionBar}>
+        {receipts.length > 0 ? (
+          <Button
+            title={anyUnprocessed ? "Tümünü işlendi yap" : "Tümünün işaretini kaldır"}
+            onPress={() => bulkMutation.mutate(anyUnprocessed)}
+            loading={bulkMutation.isPending}
+            busyTitle="İşleniyor…"
+          />
+        ) : null}
 
-          <Button title="Fiş Yükle" variant="secondary" onPress={openCamera} />
-          <Text style={[text.caption, styles.creditNote]}>
-            Muhasebeci olarak yüklediğiniz fişler bu mükellefin ayına eklenir ve analiz kredisi sizin
-            hesabınızdan düşülür.
+        <Button title="Fiş Yükle" variant="secondary" onPress={openCamera} />
+        <Text style={[text.caption, styles.creditNote]}>
+          Muhasebeci olarak yüklediğiniz fişler bu mükellefin ayına eklenir ve analiz kredisi sizin
+          hesabınızdan düşülür.
+        </Text>
+        {credits && !credits.unlimited ? (
+          <View style={styles.creditRow}>
+            <Badge label={`Bu ay ${credits.used}/${credits.limit ?? 0} analiz`} tone="neutral" />
+          </View>
+        ) : null}
+        {credits && !credits.unlimited && credits.remaining === 0 ? (
+          <Text style={[text.caption, styles.creditWarning]}>
+            Aylık analiz limitiniz doldu — yüklediğiniz fişler sıraya alınır, kredi yenilenince analiz
+            edilir.
           </Text>
-          {credits && !credits.unlimited ? (
-            <View style={styles.creditRow}>
-              <Badge label={`Bu ay ${credits.used}/${credits.limit ?? 0} analiz`} tone="neutral" />
-              {credits.remaining === 0 ? <Badge label="Analiz limiti doldu" tone="warning" /> : null}
-            </View>
-          ) : null}
-        </View>
-      ) : null}
+        ) : null}
+      </View>
 
       <Toast message={toast} onHide={() => setToast(null)} />
     </View>
@@ -525,4 +537,5 @@ const styles = StyleSheet.create({
   confirmButton: { flex: 1 },
   creditNote: { color: tokens.color.inkSoft },
   creditRow: { flexDirection: "row", gap: tokens.space(1.5) },
+  creditWarning: { color: tokens.color.warning },
 });

@@ -1,7 +1,11 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react-native";
+import type { ReactNode } from "react";
 import { useUploadQueue } from "../useUploadQueue";
 import * as queue from "../queue";
+import * as worker from "../worker";
 import type { QueueRecord } from "../queue";
+import { createTestQueryClient } from "@/src/test/queryClient";
 
 // Automocking "../queue" still loads the real module to introspect its
 // shape, which pulls in the real AsyncStorage import — give it the
@@ -14,6 +18,14 @@ jest.mock("../queue");
 jest.mock("../worker", () => ({ drainOnce: jest.fn() }));
 
 const mockedQueue = queue as jest.Mocked<typeof queue>;
+const mockedWorker = worker as jest.Mocked<typeof worker>;
+
+// `retry` (below) calls `useQueryClient()`, so every render needs a
+// provider in its tree now — same helper the screen tests use.
+function wrapper({ children }: { children: ReactNode }) {
+  const queryClient: QueryClient = createTestQueryClient();
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
 
 function record(overrides: Partial<QueueRecord> = {}): QueueRecord {
   return {
@@ -38,7 +50,7 @@ test("exposes only the records for the selected period", async () => {
     record({ id: "q1", period: "2026-08" }),
     record({ id: "q2", period: "2026-07" }),
   ]);
-  const { result } = renderHook(() => useUploadQueue("2026-08"));
+  const { result } = renderHook(() => useUploadQueue("2026-08"), { wrapper });
   await waitFor(() => expect(result.current.queued).toHaveLength(1));
   expect(result.current.queued[0].id).toBe("q1");
 });
@@ -48,7 +60,7 @@ test("without a clientId, exposes only the caller's own captures (no clientId se
     record({ id: "own", period: "2026-08" }),
     record({ id: "for-client", period: "2026-08", clientId: "c1" }),
   ]);
-  const { result } = renderHook(() => useUploadQueue("2026-08"));
+  const { result } = renderHook(() => useUploadQueue("2026-08"), { wrapper });
   await waitFor(() => expect(result.current.queued).toHaveLength(1));
   expect(result.current.queued[0].id).toBe("own");
 });
@@ -59,14 +71,14 @@ test("with a clientId, exposes only that client's queued captures", async () => 
     record({ id: "for-c1", period: "2026-08", clientId: "c1" }),
     record({ id: "for-c2", period: "2026-08", clientId: "c2" }),
   ]);
-  const { result } = renderHook(() => useUploadQueue("2026-08", "c1"));
+  const { result } = renderHook(() => useUploadQueue("2026-08", "c1"), { wrapper });
   await waitFor(() => expect(result.current.queued).toHaveLength(1));
   expect(result.current.queued[0].id).toBe("for-c1");
 });
 
 test("retry resets a failed record to pending", async () => {
   mockedQueue.listQueue.mockResolvedValue([record({ status: "failed", attempts: 5 })]);
-  const { result } = renderHook(() => useUploadQueue("2026-08"));
+  const { result } = renderHook(() => useUploadQueue("2026-08"), { wrapper });
   await waitFor(() => expect(result.current.queued).toHaveLength(1));
   await act(() => result.current.retry("q1"));
   expect(mockedQueue.updateRecord).toHaveBeenCalledWith("q1", {
@@ -74,4 +86,14 @@ test("retry resets a failed record to pending", async () => {
     attempts: 0,
     error: undefined,
   });
+});
+
+test("retry drains with a handler, not silently (so a successful retry still invalidates the right caches)", async () => {
+  mockedQueue.listQueue.mockResolvedValue([record({ status: "failed", attempts: 5 })]);
+  const { result } = renderHook(() => useUploadQueue("2026-08"), { wrapper });
+  await waitFor(() => expect(result.current.queued).toHaveLength(1));
+
+  await act(() => result.current.retry("q1"));
+
+  expect(mockedWorker.drainOnce).toHaveBeenCalledWith(expect.any(Function));
 });

@@ -139,6 +139,46 @@ describe("uploading on the client's behalf (Task 24)", () => {
     await waitFor(() => expect(screen.getByText("Bu ay fiş yok")).toBeOnTheScreen());
     expect(screen.queryByText("Yükleniyor")).toBeNull();
   });
+
+  test("falls back to the company query's name for the camera banner when full_name isn't in the route", async () => {
+    // No full_name param — matches a deep link / cold start, the exact case
+    // the banner exists to cover.
+    useLocalSearchParams.mockReturnValue({ clientId: "c1", period: "2026-08" });
+    mocked.clientReceipts.mockResolvedValue([]);
+    renderScreen();
+    await waitFor(() => expect(screen.getAllByText("Yıldırım Ticaret").length).toBeGreaterThan(0));
+
+    fireEvent.press(screen.getByText("Fiş Yükle"));
+
+    expect(router.push).toHaveBeenCalledWith({
+      pathname: "/(accountant)/mukellef/[clientId]/kamera",
+      params: { clientId: "c1", period: "2026-08", full_name: "Yıldırım Ticaret" },
+    });
+  });
+
+  test("shows the web's full explanation when the accountant's own analysis credit is exhausted", async () => {
+    mocked.clientReceipts.mockResolvedValue([]);
+    mocked.getCredits.mockResolvedValue({ limit: 10, used: 10, remaining: 0, unlimited: false });
+    renderScreen();
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Aylık analiz limitiniz doldu — yüklediğiniz fişler sıraya alınır, kredi yenilenince analiz edilir.",
+        ),
+      ).toBeOnTheScreen(),
+    );
+  });
+
+  test("keeps queued captures and the upload action visible when the receipts fetch fails", async () => {
+    mocked.clientReceipts.mockRejectedValue(new Error("boom"));
+    mockedQueue.listQueue.mockResolvedValue([queuedRecord({ id: "q1", period: "2026-08", clientId: "c1" })]);
+    renderScreen();
+
+    await waitFor(() => expect(screen.getByText("Bir şeyler ters gitti. Lütfen tekrar dene.")).toBeOnTheScreen());
+    expect(screen.getByText("Yükleniyor")).toBeOnTheScreen();
+    expect(screen.getByText("Fiş Yükle")).toBeOnTheScreen();
+    expect(screen.queryByText("Bu ay fiş yok")).toBeNull();
+  });
 });
 
 test("shows the client's name and month picker", async () => {
