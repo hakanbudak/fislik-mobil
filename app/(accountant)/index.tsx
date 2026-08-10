@@ -24,6 +24,20 @@ import { text } from "@/src/theme/typography";
  * invitations UI, unlike the web page which hand-rolls its own incoming/
  * outgoing invite blocks), then the client roster itself.
  *
+ * `showEmptyState={false}` on `GrantsSection`: unlike the client's
+ * Muhasebecim screen, this screen has exactly one empty state — the client
+ * list's, below — matching `AccountantClientsPage.tsx` exactly (its
+ * incoming-invites block renders only when non-empty, no empty state of its
+ * own). Passing `role="accountant"` alone would otherwise render a second,
+ * near-duplicate "Henüz mükellefiniz yok" empty state from `GrantsSection`
+ * itself.
+ *
+ * Deliberately NOT matching the web: the invite form stays inline
+ * (`GrantsSection`'s `InviteForm`), not the web's modal
+ * ("Mükellef davet et"). A modal for a single e-mail field is worse on a
+ * phone than an inline form; the wording is faithful, only the container
+ * differs. Do not "fix" this toward the web.
+ *
  * Tapping a client pushes to `/(accountant)/mukellef/${client_id}` with the
  * currently viewed `period` as a query param — that route is Task 22's
  * per-client month view and does not exist yet, so this push 404s inside
@@ -49,7 +63,7 @@ export default function AccountantClientsScreen() {
         <MonthPicker value={period} onChange={setPeriod} />
       </View>
 
-      <GrantsSection role="accountant" />
+      <GrantsSection role="accountant" showEmptyState={false} />
 
       {clientsQuery.isLoading ? (
         <View style={styles.center}>

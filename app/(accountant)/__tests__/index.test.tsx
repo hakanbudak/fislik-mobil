@@ -62,10 +62,18 @@ test("omits the unprocessed badge at zero", async () => {
 test("shows the empty state when there are no clients", async () => {
   mocked.listClients.mockResolvedValue([]);
   renderScreen();
-  // The grants section (no grants at all, mocked empty in beforeEach) also
-  // renders "Henüz mükellefiniz yok" as its own empty-state title, so two
-  // instances are expected — one for the invitations list, one for clients.
-  await waitFor(() => expect(screen.getAllByText("Henüz mükellefiniz yok")).toHaveLength(2));
+  await waitFor(() => expect(screen.getByText("Henüz mükellefiniz yok")).toBeOnTheScreen());
+});
+
+test("renders exactly one empty state when both grants and clients are empty", async () => {
+  mocked.listClients.mockResolvedValue([]);
+  mocked.listGrants.mockResolvedValue([]);
+  renderScreen();
+  // GrantsSection is mounted with showEmptyState={false} on this screen, so
+  // its own "no grants at all" empty state must not also render — only the
+  // client list's does, matching AccountantClientsPage.tsx's single empty
+  // state for the whole page.
+  await waitFor(() => expect(screen.getAllByText("Henüz mükellefiniz yok")).toHaveLength(1));
 });
 
 test("shows an incoming invitation", async () => {

@@ -59,8 +59,16 @@ const INVITE_ERROR_OVERRIDES: Record<Role, Record<number, string>> = {
  * pending grant the viewer was invited into needs their consent and renders
  * as `IncomingInviteCard`; everything else — active links and the viewer's
  * own outgoing invites still pending — renders as an ordinary `GrantCard`.
+ *
+ * `showEmptyState` defaults to true (the client screen's only empty state is
+ * this one, matching `AccountantsPage.tsx`). The accountant screen passes
+ * `false`: `AccountantClientsPage.tsx` has exactly one empty state for the
+ * whole page — the client list's — and incoming invitations there render
+ * only when non-empty, with no empty state of their own. This is a prop, not
+ * a `role`-branch, because it is the mounting screen's layout that decides
+ * whether a second empty state belongs here, not the viewer's role.
  */
-export function GrantsSection({ role }: { role: Role }) {
+export function GrantsSection({ role, showEmptyState = true }: { role: Role; showEmptyState?: boolean }) {
   const queryClient = useQueryClient();
   const grantsQuery = useQuery({ queryKey: queryKeys.grants(), queryFn: listGrants, retry: false });
 
@@ -138,7 +146,7 @@ export function GrantsSection({ role }: { role: Role }) {
         <ErrorCard message={apiErrorMessage(grantsQuery.error)} onRetry={() => grantsQuery.refetch()} />
       ) : null}
 
-      {grantsQuery.isSuccess && grants.length === 0 ? (
+      {showEmptyState && grantsQuery.isSuccess && grants.length === 0 ? (
         <EmptyState title={emptyCopy.title} description={emptyCopy.description} />
       ) : null}
 

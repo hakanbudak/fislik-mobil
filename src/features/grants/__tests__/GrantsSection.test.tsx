@@ -10,11 +10,11 @@ jest.mock("@/src/api/endpoints");
 
 const mocked = endpoints as jest.Mocked<typeof endpoints>;
 
-function renderSection(role: "client" | "accountant" = "client") {
+function renderSection(role: "client" | "accountant" = "client", showEmptyState?: boolean) {
   const client = createTestQueryClient();
   return render(
     <QueryClientProvider client={client}>
-      <GrantsSection role={role} />
+      <GrantsSection role={role} showEmptyState={showEmptyState} />
     </QueryClientProvider>,
   );
 }
@@ -136,6 +136,25 @@ test("shows an empty state when there are no grants at all", async () => {
   mocked.listGrants.mockResolvedValue([]);
   renderSection("client");
   await waitFor(() => expect(screen.getByText("Henüz muhasebeci eklemedin")).toBeOnTheScreen());
+});
+
+test("suppresses its own empty state when showEmptyState is false", async () => {
+  mocked.listGrants.mockResolvedValue([]);
+  renderSection("accountant", false);
+  await waitFor(() => expect(screen.getByLabelText("Mükellef e-postası")).toBeOnTheScreen());
+  expect(screen.queryByText("Henüz mükellefiniz yok")).toBeNull();
+});
+
+test("still renders its own empty state by default (client screen unaffected)", async () => {
+  mocked.listGrants.mockResolvedValue([]);
+  renderSection("client");
+  await waitFor(() => expect(screen.getByText("Henüz muhasebeci eklemedin")).toBeOnTheScreen());
+});
+
+test("still renders incoming invitations when showEmptyState is false", async () => {
+  mocked.listGrants.mockResolvedValue([incomingPendingForClient]);
+  renderSection("accountant", false);
+  await waitFor(() => expect(screen.getByText("Kabul Et")).toBeOnTheScreen());
 });
 
 test("shows an API error message for a failed invite, never the raw detail", async () => {
