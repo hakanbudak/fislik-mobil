@@ -11,14 +11,17 @@ import { text } from "@/src/theme/typography";
  * Copy differs only by which role is doing the inviting — `GrantsSection` is
  * mounted on both the client's Muhasebecim screen and (Task 21) the
  * accountant's Mükellefler screen, and nothing else about this form should
- * need to change between them.
+ * need to change between them. Ported verbatim: client copy from
+ * `fislik-web/src/pages/AccountantsPage.tsx`, accountant copy from
+ * `fislik-web/src/pages/AccountantClientsPage.tsx` (its invite Modal's
+ * title and body, used here as this form's inline heading/subtitle).
  */
 const ROLE_COPY: Record<
   Role,
   { emailLabel: string; placeholder: string; title: string; subtitle: string }
 > = {
   client: {
-    emailLabel: "Mali müşavir e-postası",
+    emailLabel: "Muhasebeci e-postası",
     placeholder: "muhasebeci@ornek.com",
     title: "Muhasebecinizi davet edin",
     subtitle: "E-posta adresini girin; davet bağlantısıyla hesabına bağlansın ve fişlerinizi görsün.",
@@ -26,8 +29,9 @@ const ROLE_COPY: Record<
   accountant: {
     emailLabel: "Mükellef e-postası",
     placeholder: "mukellef@ornek.com",
-    title: "Mükellefinizi davet edin",
-    subtitle: "E-posta adresini girin; davet bağlantısıyla hesabına bağlansın ve fişlerini paylaşsın.",
+    title: "Mükellef davet et",
+    subtitle:
+      "Mükellefinizin e-posta adresini girin; daveti kabul ettiğinde fişlerini Fişlik üzerinden toplayıp işleyebilirsiniz.",
   },
 };
 

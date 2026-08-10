@@ -58,8 +58,9 @@ export function GrantCard({
 
       {confirming ? (
         <View style={styles.confirm}>
+          <Text style={[text.label, styles.confirmTitle]}>Erişim iptal edilsin mi?</Text>
           <Text style={[text.body, styles.confirmText]}>
-            {displayName} artık erişemeyecek. Bu işlem geri alınamaz.
+            {displayName} artık fişlerinize erişemeyecek. Bu işlem geri alınamaz.
           </Text>
           <View style={styles.confirmActions}>
             <View style={styles.confirmButton}>
@@ -67,9 +68,9 @@ export function GrantCard({
             </View>
             <View style={styles.confirmButton}>
               <Button
-                title="Erişimi kaldır"
+                title="Erişimi iptal et"
                 variant="danger"
-                busyTitle="Kaldırılıyor…"
+                busyTitle="İptal ediliyor…"
                 loading={busy}
                 onPress={handleConfirm}
               />
@@ -77,7 +78,7 @@ export function GrantCard({
           </View>
         </View>
       ) : (
-        <Button title="Erişimi kaldır" variant="secondary" onPress={() => setConfirming(true)} />
+        <Button title="Erişimi iptal et" variant="secondary" onPress={() => setConfirming(true)} />
       )}
     </Card>
   );
@@ -98,7 +99,8 @@ const styles = StyleSheet.create({
   name: { color: tokens.color.ink },
   email: { color: tokens.color.inkSoft },
   confirm: { gap: tokens.space(3) },
-  confirmText: { color: tokens.color.ink },
+  confirmTitle: { color: tokens.color.ink },
+  confirmText: { color: tokens.color.inkSoft },
   confirmActions: { flexDirection: "row", gap: tokens.space(2.5) },
   confirmButton: { flex: 1 },
 });

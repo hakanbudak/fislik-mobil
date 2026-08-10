@@ -50,13 +50,13 @@ test("separates incoming pending invites from the user's own grants", async () =
   renderSection("client");
 
   await waitFor(() => expect(screen.getByText("Kabul Et")).toBeOnTheScreen());
-  expect(screen.queryAllByText("Erişimi kaldır")).toHaveLength(1);
+  expect(screen.queryAllByText("Erişimi iptal et")).toHaveLength(1);
 });
 
 test("labels the invite field for a client inviting an accountant", async () => {
   mocked.listGrants.mockResolvedValue([]);
   renderSection("client");
-  await waitFor(() => expect(screen.getByLabelText("Mali müşavir e-postası")).toBeOnTheScreen());
+  await waitFor(() => expect(screen.getByLabelText("Muhasebeci e-postası")).toBeOnTheScreen());
 });
 
 test("labels the invite field for an accountant inviting a client", async () => {
@@ -70,8 +70,8 @@ test("sends an invite and invalidates the grants list", async () => {
   mocked.inviteCounterpart.mockResolvedValue(outgoingActive);
   renderSection("client");
 
-  await waitFor(() => expect(screen.getByLabelText("Mali müşavir e-postası")).toBeOnTheScreen());
-  fireEvent.changeText(screen.getByLabelText("Mali müşavir e-postası"), "yeni@muhasebe.com");
+  await waitFor(() => expect(screen.getByLabelText("Muhasebeci e-postası")).toBeOnTheScreen());
+  fireEvent.changeText(screen.getByLabelText("Muhasebeci e-postası"), "yeni@muhasebe.com");
   fireEvent.press(screen.getByText("Davet Gönder"));
 
   await waitFor(() => expect(mocked.inviteCounterpart).toHaveBeenCalledWith("yeni@muhasebe.com"));
@@ -106,14 +106,14 @@ test("revoking access is behind a confirmation that names the counterpart", asyn
   mocked.revokeGrant.mockResolvedValue(undefined);
   renderSection("client");
 
-  await waitFor(() => expect(screen.getByText("Erişimi kaldır")).toBeOnTheScreen());
-  fireEvent.press(screen.getByText("Erişimi kaldır"));
+  await waitFor(() => expect(screen.getByText("Erişimi iptal et")).toBeOnTheScreen());
+  fireEvent.press(screen.getByText("Erişimi iptal et"));
 
-  await waitFor(() => expect(screen.getByText(/Selin Muhasebe artık erişemeyecek/)).toBeOnTheScreen());
+  await waitFor(() => expect(screen.getByText(/Selin Muhasebe artık fişlerinize erişemeyecek/)).toBeOnTheScreen());
   expect(mocked.revokeGrant).not.toHaveBeenCalled();
 
   fireEvent.press(screen.getByText("Vazgeç"));
-  expect(screen.queryByText(/artık erişemeyecek/)).toBeNull();
+  expect(screen.queryByText(/artık fişlerinize erişemeyecek/)).toBeNull();
 });
 
 test("confirming revoke calls the API and invalidates the grants list", async () => {
@@ -121,11 +121,11 @@ test("confirming revoke calls the API and invalidates the grants list", async ()
   mocked.revokeGrant.mockResolvedValue(undefined);
   renderSection("client");
 
-  await waitFor(() => expect(screen.getByText("Erişimi kaldır")).toBeOnTheScreen());
-  fireEvent.press(screen.getByText("Erişimi kaldır"));
-  await waitFor(() => expect(screen.getByText(/Selin Muhasebe artık erişemeyecek/)).toBeOnTheScreen());
+  await waitFor(() => expect(screen.getByText("Erişimi iptal et")).toBeOnTheScreen());
+  fireEvent.press(screen.getByText("Erişimi iptal et"));
+  await waitFor(() => expect(screen.getByText(/Selin Muhasebe artık fişlerinize erişemeyecek/)).toBeOnTheScreen());
 
-  const confirmButtons = screen.getAllByText("Erişimi kaldır");
+  const confirmButtons = screen.getAllByText("Erişimi iptal et");
   fireEvent.press(confirmButtons[confirmButtons.length - 1]);
 
   await waitFor(() => expect(mocked.revokeGrant).toHaveBeenCalledWith("g2"));
@@ -143,10 +143,39 @@ test("shows an API error message for a failed invite, never the raw detail", asy
   mocked.inviteCounterpart.mockRejectedValue(new ApiError(409, "duplicate row xyz"));
   renderSection("client");
 
-  await waitFor(() => expect(screen.getByLabelText("Mali müşavir e-postası")).toBeOnTheScreen());
-  fireEvent.changeText(screen.getByLabelText("Mali müşavir e-postası"), "yeni@muhasebe.com");
+  await waitFor(() => expect(screen.getByLabelText("Muhasebeci e-postası")).toBeOnTheScreen());
+  fireEvent.changeText(screen.getByLabelText("Muhasebeci e-postası"), "yeni@muhasebe.com");
   fireEvent.press(screen.getByText("Davet Gönder"));
 
   await waitFor(() => expect(screen.getByText("Bu e-postaya zaten davet gönderilmiş")).toBeOnTheScreen());
   expect(screen.queryByText("duplicate row xyz")).toBeNull();
+});
+
+test("shows the role-appropriate 422 override, not the generic validation message", async () => {
+  mocked.listGrants.mockResolvedValue([]);
+  mocked.inviteCounterpart.mockRejectedValue(new ApiError(422, "not an accountant"));
+  renderSection("client");
+
+  await waitFor(() => expect(screen.getByLabelText("Muhasebeci e-postası")).toBeOnTheScreen());
+  fireEvent.changeText(screen.getByLabelText("Muhasebeci e-postası"), "yanlis@ornek.com");
+  fireEvent.press(screen.getByText("Davet Gönder"));
+
+  await waitFor(() =>
+    expect(screen.getByText("Bu e-posta bir muhasebeci hesabına ait değil")).toBeOnTheScreen(),
+  );
+  expect(screen.queryByText("Gönderilen bilgiler geçersiz.")).toBeNull();
+});
+
+test("shows the accountant-side 422 override when an accountant invites a non-client e-mail", async () => {
+  mocked.listGrants.mockResolvedValue([]);
+  mocked.inviteCounterpart.mockRejectedValue(new ApiError(422, "not a client"));
+  renderSection("accountant");
+
+  await waitFor(() => expect(screen.getByLabelText("Mükellef e-postası")).toBeOnTheScreen());
+  fireEvent.changeText(screen.getByLabelText("Mükellef e-postası"), "yanlis@ornek.com");
+  fireEvent.press(screen.getByText("Davet Gönder"));
+
+  await waitFor(() =>
+    expect(screen.getByText("Bu e-posta bir mükellef hesabına ait değil")).toBeOnTheScreen(),
+  );
 });

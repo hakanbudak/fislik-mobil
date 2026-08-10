@@ -19,14 +19,32 @@ import { GrantCard } from "./GrantCard";
 import { IncomingInviteCard } from "./IncomingInviteCard";
 import { InviteForm } from "./InviteForm";
 
+// Ported verbatim from the web: client copy from
+// `fislik-web/src/pages/AccountantsPage.tsx`, accountant copy from
+// `fislik-web/src/pages/AccountantClientsPage.tsx`.
 const EMPTY_STATE_COPY: Record<Role, { title: string; description: string }> = {
   client: {
     title: "Henüz muhasebeci eklemedin",
     description: "Muhasebecinizi yukarıdan davet ederek fişlerinizi paylaşmaya başlayın.",
   },
   accountant: {
-    title: "Henüz mükellef eklemedin",
-    description: "Mükellefinizi yukarıdan davet ederek fişlerini görmeye başlayın.",
+    title: "Henüz mükellefiniz yok",
+    description:
+      "Yukarıdan mükellefinizi e-postayla davet edin ya da mükellefinizin kendi hesabından göndereceği daveti kabul edin.",
+  },
+};
+
+// Invite errors, ported verbatim from both web screens' `apiErrorMessage`
+// overrides. 409 is shared; 422 names the role the invited e-mail is
+// missing, which differs by who is inviting whom.
+const INVITE_ERROR_OVERRIDES: Record<Role, Record<number, string>> = {
+  client: {
+    409: "Bu e-postaya zaten davet gönderilmiş",
+    422: "Bu e-posta bir muhasebeci hesabına ait değil",
+  },
+  accountant: {
+    409: "Bu e-postaya zaten davet gönderilmiş",
+    422: "Bu e-posta bir mükellef hesabına ait değil",
   },
 };
 
@@ -62,7 +80,7 @@ export function GrantsSection({ role }: { role: Role }) {
   function invalidateAfterConsentChange() {
     queryClient.invalidateQueries({ queryKey: queryKeys.grants() });
     if (role === "accountant") {
-      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.clientsAll() });
     }
   }
 
@@ -105,7 +123,7 @@ export function GrantsSection({ role }: { role: Role }) {
         pending={inviteMutation.isPending}
         error={
           inviteMutation.isError
-            ? apiErrorMessage(inviteMutation.error, { 409: "Bu e-postaya zaten davet gönderilmiş" })
+            ? apiErrorMessage(inviteMutation.error, INVITE_ERROR_OVERRIDES[role])
             : null
         }
       />
