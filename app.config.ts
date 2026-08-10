@@ -11,6 +11,10 @@ const config: ExpoConfig = {
     bundleIdentifier: "dev.selamet.fislik",
     supportsTablet: false,
     associatedDomains: ["applinks:fislik.selamet.dev"],
+    infoPlist: {
+      NSFaceIDUsageDescription:
+        "Fişlik'i Face ID ile hızlıca açabilmeniz için kullanılır.",
+    },
   },
   android: {
     package: "dev.selamet.fislik",

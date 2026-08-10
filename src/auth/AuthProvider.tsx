@@ -5,10 +5,11 @@ import { queryKeys } from "@/src/api/queryKeys";
 import * as endpoints from "@/src/api/endpoints";
 import type { AuthOut, Role, UserOut } from "@/src/api/endpoints";
 import { clearSession, loadSession, saveSession } from "./session";
+import { requestUnlock } from "./biometrics";
 
 /** "locked" is added by Task 8 (biometric unlock) as an extra state layered
  *  on top of an already-authed session — never a replacement for it. */
-export type Status = "loading" | "authed" | "anon";
+export type Status = "loading" | "authed" | "anon" | "locked";
 
 interface AuthValue {
   user: UserOut | null;
@@ -22,6 +23,9 @@ interface AuthValue {
     invite_token?: string;
   }) => Promise<UserOut>;
   signOut: () => Promise<void>;
+  /** Retries the biometric prompt from the locked screen; flips `status`
+   *  back to "authed"/"anon" (via the normal derivation) on success. */
+  retryUnlock: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -30,10 +34,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [restored, setRestored] = useState(false);
   const [hasToken, setHasToken] = useState(false);
+  const [locked, setLocked] = useState(false);
 
   useEffect(() => {
-    loadSession().then((token) => {
+    loadSession().then(async (token) => {
       setHasToken(Boolean(token));
+      // Only a token that exists is worth gating — requestUnlock() itself
+      // already no-ops (returns true) when the feature is off or the
+      // device has no enrolled biometrics, so this stays a pure convenience
+      // lock and never blocks the anon path.
+      if (token) setLocked(!(await requestUnlock()));
       setRestored(true);
     });
   }, []);
@@ -54,8 +64,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [me.error]);
 
-  const status: Status =
-    !restored || (hasToken && me.isLoading) ? "loading" : me.data ? "authed" : "anon";
+  const status: Status = !restored
+    ? "loading"
+    : locked
+      ? "locked"
+      : hasToken && me.isLoading
+        ? "loading"
+        : me.data
+          ? "authed"
+          : "anon";
 
   async function adopt(result: AuthOut): Promise<UserOut> {
     const { access_token, ...user } = result;
@@ -76,7 +93,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await endpoints.logout().catch(() => undefined);
       await clearSession();
       setHasToken(false);
+      setLocked(false);
       queryClient.clear();
+    },
+    retryUnlock: async () => {
+      setLocked(!(await requestUnlock()));
     },
   };
 

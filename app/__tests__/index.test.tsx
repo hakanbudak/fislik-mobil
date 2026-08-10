@@ -8,6 +8,7 @@ jest.mock("expo-router", () => ({
   Redirect: jest.fn(() => null),
   Slot: ({ children }: never) => children,
 }));
+jest.mock("@/src/auth/LockedScreen", () => ({ LockedScreen: () => null }));
 
 const mockedRedirect = Redirect as jest.Mock;
 
@@ -33,6 +34,12 @@ test("redirects an authed accountant to the accountant tab group", () => {
 
 test("shows a spinner while the session restores", () => {
   mockUseAuth.mockReturnValue({ status: "loading", user: null });
+  render(<Index />);
+  expect(mockedRedirect).not.toHaveBeenCalled();
+});
+
+test("shows the locked screen instead of redirecting when biometric unlock is pending", () => {
+  mockUseAuth.mockReturnValue({ status: "locked", user: { id: "u1", role: "client" } });
   render(<Index />);
   expect(mockedRedirect).not.toHaveBeenCalled();
 });
