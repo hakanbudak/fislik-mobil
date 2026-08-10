@@ -150,6 +150,14 @@ export function getMe(): Promise<UserOut> {
   return apiFetch<UserOut>("/auth/me");
 }
 
+export type ChangePasswordIn = components["schemas"]["ChangePasswordIn"];
+
+/** Profile-page password change. A wrong `current_password` 400s — see
+ *  `apiErrorMessage`'s override in `app/(client)/profil.tsx`. */
+export function changePassword(data: ChangePasswordIn): Promise<void> {
+  return apiFetch<void>("/auth/change-password", { method: "POST", body: JSON.stringify(data) });
+}
+
 export function requestPasswordReset(email: string): Promise<void> {
   return apiFetch<void>("/auth/password-reset/request", {
     method: "POST",
@@ -238,4 +246,18 @@ export function saveCompany(data: CompanyIn): Promise<CompanyOut> {
 /** An accountant's read of a specific client's company profile. */
 export function getClientCompany(clientId: string): Promise<CompanyOut> {
   return apiFetch<CompanyOut>(`/clients/${clientId}/company`);
+}
+
+export type NotificationOut = components["schemas"]["NotificationOut"];
+export type NotificationsPage = components["schemas"]["NotificationsPage"];
+
+/** Both roles' own notifications, newest first, plus the unread count the
+ *  tab badge reads. Shared across roles — mirrors `fislik-web/src/api/endpoints.ts`. */
+export function listNotifications(): Promise<NotificationsPage> {
+  return apiFetch<NotificationsPage>("/notifications");
+}
+
+/** `ids: null` marks every notification read; a list marks only those. */
+export function markNotificationsRead(ids: string[] | null): Promise<void> {
+  return apiFetch<void>("/notifications/read", { method: "POST", body: JSON.stringify({ ids }) });
 }
