@@ -52,7 +52,17 @@ test("reports the requested and actual periods to its callback", async () => {
   mockedUploader.uploadRecord.mockResolvedValue({ id: "r1", period: "2026-09" } as never);
   const onUploaded = jest.fn();
   await drainOnce(onUploaded);
-  expect(onUploaded).toHaveBeenCalledWith(expect.objectContaining({ period: "2026-09" }), "2026-08");
+  expect(onUploaded).toHaveBeenCalledWith(expect.objectContaining({ period: "2026-09" }), "2026-08", undefined);
+});
+
+test("reports the record's clientId to its callback, for an accountant's on-behalf upload", async () => {
+  mockedQueue.nextPending
+    .mockResolvedValueOnce(record({ period: "2026-08", clientId: "c1" }))
+    .mockResolvedValue(null);
+  mockedUploader.uploadRecord.mockResolvedValue({ id: "r1", period: "2026-08" } as never);
+  const onUploaded = jest.fn();
+  await drainOnce(onUploaded);
+  expect(onUploaded).toHaveBeenCalledWith(expect.objectContaining({ period: "2026-08" }), "2026-08", "c1");
 });
 
 test("returns a failed record to pending with an incremented attempt count", async () => {

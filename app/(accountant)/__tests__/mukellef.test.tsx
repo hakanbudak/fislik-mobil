@@ -5,7 +5,18 @@ import * as endpoints from "@/src/api/endpoints";
 import type { CompanyOut, ReceiptOut } from "@/src/api/endpoints";
 import { queryKeys } from "@/src/api/queryKeys";
 import { createTestQueryClient } from "@/src/test/queryClient";
+import * as queue from "@/src/upload/queue";
+import type { QueueRecord } from "@/src/upload/queue";
 
+// The screen merges the local upload queue in (Task 24), which pulls in
+// `@react-native-async-storage/async-storage` even though `../queue` is
+// mocked below — auto-mocking still loads the real module once to
+// introspect its shape (see src/upload/__tests__/capture.test.ts).
+jest.mock("@react-native-async-storage/async-storage", () =>
+  require("@react-native-async-storage/async-storage/jest/async-storage-mock"),
+);
+jest.mock("@/src/upload/queue");
+jest.mock("@/src/upload/worker", () => ({ drainOnce: jest.fn() }));
 jest.mock("@/src/api/endpoints");
 jest.mock("expo-router", () => ({
   router: { push: jest.fn(), back: jest.fn(), setParams: jest.fn() },
@@ -13,10 +24,24 @@ jest.mock("expo-router", () => ({
 }));
 
 const mocked = endpoints as jest.Mocked<typeof endpoints>;
+const mockedQueue = queue as jest.Mocked<typeof queue>;
 const { router, useLocalSearchParams } = jest.requireMock("expo-router") as {
   router: { push: jest.Mock; back: jest.Mock; setParams: jest.Mock };
   useLocalSearchParams: jest.Mock;
 };
+
+function queuedRecord(overrides: Partial<QueueRecord> = {}): QueueRecord {
+  return {
+    id: "q1",
+    localUri: "file:///docs/a.jpg",
+    contentType: "image/jpeg",
+    period: "2026-08",
+    status: "pending",
+    attempts: 0,
+    createdAt: 1,
+    ...overrides,
+  };
+}
 
 const company: CompanyOut = {
   full_name: "Ayşe Yıldırım",
@@ -62,6 +87,58 @@ beforeEach(() => {
   useLocalSearchParams.mockReturnValue({ clientId: "c1", period: "2026-08" });
   mocked.getClientCompany.mockResolvedValue(company);
   mocked.periodLockStatus.mockResolvedValue({ locked: false, locked_at: null });
+  mockedQueue.listQueue.mockResolvedValue([]);
+  mockedQueue.subscribe.mockReturnValue(() => undefined);
+  mocked.getCredits.mockResolvedValue({ limit: null, used: 0, remaining: null, unlimited: true });
+});
+
+describe("uploading on the client's behalf (Task 24)", () => {
+  test("Fiş Yükle navigates to the accountant capture route with clientId, the viewed period and the client name", async () => {
+    mocked.clientReceipts.mockResolvedValue([]);
+    useLocalSearchParams.mockReturnValue({ clientId: "c1", period: "2026-08", full_name: "Yıldırım Ticaret" });
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("Fiş Yükle")).toBeOnTheScreen());
+
+    fireEvent.press(screen.getByText("Fiş Yükle"));
+
+    expect(router.push).toHaveBeenCalledWith({
+      pathname: "/(accountant)/mukellef/[clientId]/kamera",
+      params: { clientId: "c1", period: "2026-08", full_name: "Yıldırım Ticaret" },
+    });
+  });
+
+  test("notes that the upload is paid from the accountant's own analysis credit", async () => {
+    mocked.clientReceipts.mockResolvedValue([]);
+    renderScreen();
+    await waitFor(() =>
+      expect(
+        screen.getByText(/analiz kredisi sizin hesabınızdan düşülür/i),
+      ).toBeOnTheScreen(),
+    );
+  });
+
+  test("shows this client's queued (not-yet-uploaded) captures alongside their receipts", async () => {
+    mocked.clientReceipts.mockResolvedValue([receipt({ id: "r1" })]);
+    mockedQueue.listQueue.mockResolvedValue([queuedRecord({ id: "q1", period: "2026-08", clientId: "c1" })]);
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("Yükleniyor")).toBeOnTheScreen());
+  });
+
+  test("does not show queued captures belonging to a different client", async () => {
+    mocked.clientReceipts.mockResolvedValue([]);
+    mockedQueue.listQueue.mockResolvedValue([queuedRecord({ id: "q1", period: "2026-08", clientId: "c2" })]);
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("Bu ay fiş yok")).toBeOnTheScreen());
+    expect(screen.queryByText("Yükleniyor")).toBeNull();
+  });
+
+  test("does not show a queued capture with no clientId (someone's own, unscoped, upload)", async () => {
+    mocked.clientReceipts.mockResolvedValue([]);
+    mockedQueue.listQueue.mockResolvedValue([queuedRecord({ id: "q1", period: "2026-08" })]);
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("Bu ay fiş yok")).toBeOnTheScreen());
+    expect(screen.queryByText("Yükleniyor")).toBeNull();
+  });
 });
 
 test("shows the client's name and month picker", async () => {

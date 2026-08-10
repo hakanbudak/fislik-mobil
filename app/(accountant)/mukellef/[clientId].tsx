@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react-native";
+import { ArrowLeft, ChevronDown, ChevronUp, Lock, LockOpen, Upload } from "lucide-react-native";
 import { useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { ApiError } from "@/src/api/client";
@@ -9,6 +9,7 @@ import {
   bulkUnmarkProcessed,
   clientReceipts,
   getClientCompany,
+  getCredits,
   lockPeriod,
   markProcessed,
   periodLockStatus,
@@ -19,9 +20,11 @@ import {
   type ReceiptOut,
 } from "@/src/api/endpoints";
 import { queryKeys } from "@/src/api/queryKeys";
+import { QueuedReceiptCard } from "@/src/features/receipts/QueuedReceiptCard";
 import { ReceiptCard } from "@/src/features/receipts/ReceiptCard";
 import { apiErrorMessage } from "@/src/lib/errors";
 import { currentPeriod, formatPeriodLabel } from "@/src/lib/period";
+import { Badge } from "@/src/theme/components/Badge";
 import { Button } from "@/src/theme/components/Button";
 import { Card } from "@/src/theme/components/Card";
 import { EmptyState } from "@/src/theme/components/EmptyState";
@@ -31,6 +34,8 @@ import { Spinner } from "@/src/theme/components/Spinner";
 import { Toast } from "@/src/theme/components/Toast";
 import { tokens } from "@/src/theme/tokens";
 import { text } from "@/src/theme/typography";
+import { useUploadQueue } from "@/src/upload/useUploadQueue";
+import type { QueueRecord } from "@/src/upload/queue";
 
 /**
  * The accountant's "one client, one month" working screen — mirrors
@@ -55,6 +60,18 @@ import { text } from "@/src/theme/typography";
  * flash, and only falls back to the company query's chain for a deep link
  * or cold start where the param is absent (matching the web's own fallback
  * order beyond its state).
+ *
+ * Task 24 layout call, carried over from Task 22's review: this screen now
+ * has three actions competing for the bottom thumb zone (mark-processed,
+ * upload, close-the-month), and the first two designs would have made all
+ * three visual peers in one row — an easy mis-tap between a routine action
+ * and a consequential one. Resolution: month-closing is pulled OUT of the
+ * bottom action bar entirely and lives in its own status row right under
+ * the header (a small pill next to the month context, mirroring where the
+ * web puts its lock control — right beside `MonthPicker`, not beside
+ * "Fiş Yükle"/"Excel'e Aktar"). The bottom action bar is left holding only
+ * the two frequent, low-consequence actions — mark-all-processed and
+ * upload — grouped together as peers, with nothing consequential nearby.
  */
 export default function ClientMonthScreen() {
   const {
@@ -78,6 +95,11 @@ export default function ClientMonthScreen() {
     queryFn: () => clientReceipts(clientId, period),
     retry: false,
   });
+
+  // Not-yet-uploaded captures queued on THIS client's behalf (Task 24) —
+  // scoped by clientId so a capture for a different client (or the device's
+  // own, unscoped queue) never bleeds in. See `useUploadQueue`'s docstring.
+  const { queued, retry: retryQueued, discard: discardQueued } = useUploadQueue(period, clientId);
 
   // A 404 means this client never filled in their company profile — that's
   // not an error, it just means the card below has nothing to show, same
@@ -114,6 +136,18 @@ export default function ClientMonthScreen() {
     retry: false,
   });
   const monthLocked = lockQuery.data?.locked === true;
+
+  // The accountant's own monthly analysis-credit balance — an on-behalf
+  // upload (see "Fiş Yükle" below) is paid from THIS balance, not the
+  // client's, matching `fislik-web/src/pages/AccountantMonthPage.tsx`'s
+  // `creditsQuery`/`["credits", "me"]`. `invalidateAfterUpload` refreshes
+  // it once a queued on-behalf capture finishes uploading.
+  const creditsQuery = useQuery({
+    queryKey: queryKeys.credits(),
+    queryFn: () => getCredits(),
+    retry: false,
+  });
+  const credits = creditsQuery.data;
 
   const lockMutation = useMutation({
     mutationFn: () => lockPeriod(clientId, period),
@@ -161,6 +195,26 @@ export default function ClientMonthScreen() {
   const receipts = receiptsQuery.data ?? [];
   const anyUnprocessed = receipts.some((r) => !r.processed);
 
+  type Row = { key: string } & (
+    | { kind: "queued"; record: QueueRecord }
+    | { kind: "receipt"; receipt: ReceiptOut }
+  );
+  const rows: Row[] = [
+    ...queued.map((record) => ({ key: `q-${record.id}`, kind: "queued" as const, record })),
+    ...receipts.map((receipt) => ({ key: `r-${receipt.id}`, kind: "receipt" as const, receipt })),
+  ];
+
+  function openCamera() {
+    router.push({
+      pathname: "/(accountant)/mukellef/[clientId]/kamera",
+      params: {
+        clientId,
+        period,
+        ...(fullNameParam ? { full_name: fullNameParam } : {}),
+      },
+    });
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -177,6 +231,61 @@ export default function ClientMonthScreen() {
         </Text>
         <MonthPicker value={period} onChange={setPeriod} />
       </View>
+
+      <View style={styles.statusRow}>
+        {monthLocked ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Ay kapalı — tıklayıp yeniden açabilirsiniz"
+            onPress={() => unlockMutation.mutate()}
+            disabled={unlockMutation.isPending}
+            style={[styles.lockPill, styles.lockPillWarning]}
+          >
+            <Lock size={12} color={tokens.color.warning} />
+            <Text style={[text.caption, styles.lockPillWarningText]}>
+              {unlockMutation.isPending ? "Açılıyor…" : "Ay kapalı — Aç"}
+            </Text>
+          </Pressable>
+        ) : !confirmingLock ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Ayı Kapat"
+            onPress={() => {
+              lockMutation.reset();
+              setConfirmingLock(true);
+            }}
+            style={styles.lockPill}
+          >
+            <LockOpen size={12} color={tokens.color.inkSoft} />
+            <Text style={[text.caption, styles.lockPillText]}>Ayı Kapat</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      {confirmingLock ? (
+        <View style={styles.confirmWrap}>
+          <Card style={styles.confirmCard}>
+            <Text style={[text.body, styles.confirmText]}>
+              {`${formatPeriodLabel(period)} kapatılsın mı? Mükellef bu ayda fiş silemez, düzenleyemez ve `}
+              {"ay değiştiremez; bu aya göndereceği yeni fişler ilk açık aya eklenir. Siz düzenlemeye "}
+              {"devam edebilirsiniz ve ayı istediğiniz zaman yeniden açabilirsiniz."}
+            </Text>
+            <View style={styles.confirmRow}>
+              <View style={styles.confirmButton}>
+                <Button title="Vazgeç" variant="secondary" onPress={() => setConfirmingLock(false)} />
+              </View>
+              <View style={styles.confirmButton}>
+                <Button
+                  title="Ayı Kapat"
+                  onPress={() => lockMutation.mutate()}
+                  loading={lockMutation.isPending}
+                  busyTitle="Kapatılıyor…"
+                />
+              </View>
+            </View>
+          </Card>
+        </View>
+      ) : null}
 
       {company ? (
         <View style={styles.companyWrap}>
@@ -200,61 +309,48 @@ export default function ClientMonthScreen() {
         </View>
       ) : null}
 
-      {receiptsQuery.isSuccess && receipts.length === 0 ? (
+      {receiptsQuery.isSuccess && rows.length === 0 ? (
         <EmptyState title="Bu ay fiş yok" description="Bu mükellef bu ay için henüz fiş yüklemedi." />
       ) : null}
 
-      {receiptsQuery.isSuccess && receipts.length > 0 ? (
+      {receiptsQuery.isSuccess && rows.length > 0 ? (
         <>
-          <Text style={[text.caption, styles.hint]}>
-            Tek bir fişin işlenme durumunu değiştirmek için fişe uzun basın.
-          </Text>
+          {receipts.length > 0 ? (
+            <Text style={[text.caption, styles.hint]}>
+              Tek bir fişin işlenme durumunu değiştirmek için fişe uzun basın.
+            </Text>
+          ) : null}
           <FlatList
-            data={receipts}
-            keyExtractor={(receipt) => receipt.id}
+            data={rows}
+            keyExtractor={(row) => row.key}
             numColumns={2}
             contentContainerStyle={styles.list}
-            renderItem={({ item }) => (
-              <ReceiptCard
-                receipt={item}
-                onPress={() =>
-                  router.push({
-                    pathname: "/(accountant)/mukellef/[clientId]/fis/[id]",
-                    params: { clientId, id: item.id, period: item.period },
-                  })
-                }
-                onLongPress={() => toggleMutation.mutate(item)}
-              />
-            )}
+            renderItem={({ item }) =>
+              item.kind === "queued" ? (
+                <QueuedReceiptCard
+                  record={item.record}
+                  onRetry={() => retryQueued(item.record.id)}
+                  onDiscard={() => discardQueued(item.record.id)}
+                />
+              ) : (
+                <ReceiptCard
+                  receipt={item.receipt}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/(accountant)/mukellef/[clientId]/fis/[id]",
+                      params: { clientId, id: item.receipt.id, period: item.receipt.period },
+                    })
+                  }
+                  onLongPress={() => toggleMutation.mutate(item.receipt)}
+                />
+              )
+            }
           />
         </>
       ) : null}
 
       {receiptsQuery.isSuccess ? (
         <View style={styles.actionBar}>
-          {confirmingLock ? (
-            <Card style={styles.confirmCard}>
-              <Text style={[text.body, styles.confirmText]}>
-                {`${formatPeriodLabel(period)} kapatılsın mı? Mükellef bu ayda fiş silemez, düzenleyemez ve `}
-                {"ay değiştiremez; bu aya göndereceği yeni fişler ilk açık aya eklenir. Siz düzenlemeye "}
-                {"devam edebilirsiniz ve ayı istediğiniz zaman yeniden açabilirsiniz."}
-              </Text>
-              <View style={styles.confirmRow}>
-                <View style={styles.confirmButton}>
-                  <Button title="Vazgeç" variant="secondary" onPress={() => setConfirmingLock(false)} />
-                </View>
-                <View style={styles.confirmButton}>
-                  <Button
-                    title="Ayı Kapat"
-                    onPress={() => lockMutation.mutate()}
-                    loading={lockMutation.isPending}
-                    busyTitle="Kapatılıyor…"
-                  />
-                </View>
-              </View>
-            </Card>
-          ) : null}
-
           {receipts.length > 0 ? (
             <Button
               title={anyUnprocessed ? "Tümünü işlendi yap" : "Tümünün işaretini kaldır"}
@@ -264,25 +360,16 @@ export default function ClientMonthScreen() {
             />
           ) : null}
 
-          {monthLocked ? (
-            <Button
-              title="Ay kapalı — Aç"
-              variant="secondary"
-              onPress={() => unlockMutation.mutate()}
-              loading={unlockMutation.isPending}
-              busyTitle="Açılıyor…"
-            />
-          ) : null}
-
-          {!monthLocked && !confirmingLock ? (
-            <Button
-              title="Ayı Kapat"
-              variant="secondary"
-              onPress={() => {
-                lockMutation.reset();
-                setConfirmingLock(true);
-              }}
-            />
+          <Button title="Fiş Yükle" variant="secondary" onPress={openCamera} />
+          <Text style={[text.caption, styles.creditNote]}>
+            Muhasebeci olarak yüklediğiniz fişler bu mükellefin ayına eklenir ve analiz kredisi sizin
+            hesabınızdan düşülür.
+          </Text>
+          {credits && !credits.unlimited ? (
+            <View style={styles.creditRow}>
+              <Badge label={`Bu ay ${credits.used}/${credits.limit ?? 0} analiz`} tone="neutral" />
+              {credits.remaining === 0 ? <Badge label="Analiz limiti doldu" tone="warning" /> : null}
+            </View>
           ) : null}
         </View>
       ) : null}
@@ -369,6 +456,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: tokens.space(2),
     padding: tokens.space(3),
+    paddingBottom: 0,
   },
   iconButton: {
     width: 40,
@@ -381,7 +469,29 @@ const styles = StyleSheet.create({
     backgroundColor: tokens.color.card,
   },
   title: { flex: 1, color: tokens.color.ink },
-  companyWrap: { paddingHorizontal: tokens.space(3) },
+  // A separate row under the header, deliberately away from the bottom
+  // action bar's routine actions — see the module docstring's Task 24 note.
+  statusRow: {
+    flexDirection: "row",
+    paddingHorizontal: tokens.space(3),
+    paddingTop: tokens.space(2),
+  },
+  lockPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: tokens.space(1.5),
+    borderWidth: 1,
+    borderColor: tokens.color.border,
+    backgroundColor: tokens.color.card,
+    borderRadius: tokens.radius.pill,
+    paddingHorizontal: tokens.space(2.5),
+    paddingVertical: tokens.space(1.5),
+  },
+  lockPillText: { color: tokens.color.inkSoft },
+  lockPillWarning: { borderColor: tokens.color.warning },
+  lockPillWarningText: { color: tokens.color.warning },
+  confirmWrap: { paddingHorizontal: tokens.space(3), paddingTop: tokens.space(2) },
+  companyWrap: { paddingHorizontal: tokens.space(3), paddingTop: tokens.space(2) },
   companyCard: { padding: 0, overflow: "hidden" },
   companyHeader: {
     flexDirection: "row",
@@ -401,7 +511,7 @@ const styles = StyleSheet.create({
   companyFieldLabel: { color: tokens.color.inkSoft },
   companyFieldValue: { color: tokens.color.ink },
   hint: { color: tokens.color.inkSoft, paddingHorizontal: tokens.space(3), paddingTop: tokens.space(2) },
-  list: { padding: tokens.space(2), paddingBottom: tokens.space(20) },
+  list: { padding: tokens.space(2), paddingBottom: tokens.space(28) },
   actionBar: {
     position: "absolute",
     left: tokens.space(3),
@@ -413,4 +523,6 @@ const styles = StyleSheet.create({
   confirmText: { color: tokens.color.ink },
   confirmRow: { flexDirection: "row", gap: tokens.space(2.5) },
   confirmButton: { flex: 1 },
+  creditNote: { color: tokens.color.inkSoft },
+  creditRow: { flexDirection: "row", gap: tokens.space(1.5) },
 });

@@ -169,6 +169,19 @@ describe("upload handshake", () => {
     expect(req.pathname).toBe("/receipts/r1/complete");
     expect(req.body).toEqual({ size_bytes: 1024 });
   });
+
+  test("getCredits: GET /credits/me", async () => {
+    const getRequest = captureRequest("get", "/credits/me", {
+      limit: 100,
+      used: 3,
+      remaining: 97,
+      unlimited: false,
+    });
+    await endpoints.getCredits();
+    const req = getRequest();
+    expect(req.method).toBe("GET");
+    expect(req.pathname).toBe("/credits/me");
+  });
 });
 
 describe("receipt lifecycle", () => {

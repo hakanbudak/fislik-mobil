@@ -8,8 +8,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import { Slot, SplashScreen } from "expo-router";
 import { useEffect, useState } from "react";
-import { queryKeys } from "@/src/api/queryKeys";
 import { AuthProvider } from "@/src/auth/AuthProvider";
+import { invalidateAfterUpload } from "@/src/upload/invalidateAfterUpload";
 import { startWorker } from "@/src/upload/worker";
 
 SplashScreen.preventAutoHideAsync();
@@ -33,15 +33,9 @@ export default function RootLayout() {
 
   useEffect(
     () =>
-      startWorker((receipt, requestedPeriod) => {
-        // The receipt may have been re-filed into a different month, so
-        // refresh both the month we aimed at and the one it landed in.
-        for (const p of new Set([requestedPeriod, receipt.period])) {
-          queryClient.invalidateQueries({ queryKey: queryKeys.receipts(p) });
-          queryClient.invalidateQueries({ queryKey: queryKeys.summary(p) });
-          queryClient.invalidateQueries({ queryKey: queryKeys.submission(p) });
-        }
-      }),
+      startWorker((receipt, requestedPeriod, clientId) =>
+        invalidateAfterUpload(queryClient, receipt, requestedPeriod, clientId),
+      ),
     [queryClient],
   );
 

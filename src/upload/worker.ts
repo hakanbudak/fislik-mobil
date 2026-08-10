@@ -3,7 +3,13 @@ import type { ReceiptOut } from "@/src/api/endpoints";
 import { MAX_ATTEMPTS, listQueue, nextPending, updateRecord } from "./queue";
 import { uploadRecord } from "./uploader";
 
-export type UploadedHandler = (receipt: ReceiptOut, requestedPeriod: string) => void;
+/**
+ * `clientId` mirrors the queue record that produced `receipt`: set only for
+ * an accountant's on-behalf upload (Task 24), undefined for the caller's
+ * own — callers use it to invalidate the right query keys (an accountant's
+ * per-client cache vs. their own receipts).
+ */
+export type UploadedHandler = (receipt: ReceiptOut, requestedPeriod: string, clientId?: string) => void;
 
 let draining = false;
 
@@ -34,7 +40,7 @@ export async function drainOnce(onUploaded?: UploadedHandler): Promise<void> {
       await updateRecord(record.id, { status: "uploading" });
       try {
         const receipt = await uploadRecord(record);
-        onUploaded?.(receipt, record.period);
+        onUploaded?.(receipt, record.period, record.clientId);
       } catch (error) {
         const attempts = record.attempts + 1;
         await updateRecord(record.id, {

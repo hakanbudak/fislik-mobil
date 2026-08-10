@@ -43,6 +43,27 @@ test("exposes only the records for the selected period", async () => {
   expect(result.current.queued[0].id).toBe("q1");
 });
 
+test("without a clientId, exposes only the caller's own captures (no clientId set)", async () => {
+  mockedQueue.listQueue.mockResolvedValue([
+    record({ id: "own", period: "2026-08" }),
+    record({ id: "for-client", period: "2026-08", clientId: "c1" }),
+  ]);
+  const { result } = renderHook(() => useUploadQueue("2026-08"));
+  await waitFor(() => expect(result.current.queued).toHaveLength(1));
+  expect(result.current.queued[0].id).toBe("own");
+});
+
+test("with a clientId, exposes only that client's queued captures", async () => {
+  mockedQueue.listQueue.mockResolvedValue([
+    record({ id: "own", period: "2026-08" }),
+    record({ id: "for-c1", period: "2026-08", clientId: "c1" }),
+    record({ id: "for-c2", period: "2026-08", clientId: "c2" }),
+  ]);
+  const { result } = renderHook(() => useUploadQueue("2026-08", "c1"));
+  await waitFor(() => expect(result.current.queued).toHaveLength(1));
+  expect(result.current.queued[0].id).toBe("for-c1");
+});
+
 test("retry resets a failed record to pending", async () => {
   mockedQueue.listQueue.mockResolvedValue([record({ status: "failed", attempts: 5 })]);
   const { result } = renderHook(() => useUploadQueue("2026-08"));

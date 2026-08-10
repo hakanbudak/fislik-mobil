@@ -17,6 +17,7 @@ export type PeriodLockOut = components["schemas"]["PeriodLockOut"];
 export type SubmissionStateOut = components["schemas"]["SubmissionStateOut"];
 export type ExtractionOut = components["schemas"]["ExtractionOut"];
 export type ExtractionPatchIn = components["schemas"]["ExtractionPatchIn"];
+export type CreditsOut = components["schemas"]["CreditsOut"];
 
 /**
  * Step 1 of the upload handshake: reserves a receipt row and a presigned R2
@@ -42,6 +43,16 @@ export function completeUpload(receiptId: string, data: { size_bytes?: number })
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+/**
+ * The caller's own monthly analysis-credit balance. An accountant's uploads
+ * on a client's behalf (`client_id` in `createUpload`) are paid out of THIS
+ * balance, not the client's — mirrors `fislik-web/src/api/endpoints.ts`'s
+ * `getCredits`, queried from `ClientHomePage`/`AccountantMonthPage` there.
+ */
+export function getCredits(): Promise<CreditsOut> {
+  return apiFetch<CreditsOut>("/credits/me");
 }
 
 export function listReceipts(period: string): Promise<ReceiptOut[]> {
