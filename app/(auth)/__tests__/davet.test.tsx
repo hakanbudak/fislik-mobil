@@ -98,6 +98,28 @@ test("not signed in: registers a client invited by an accountant", async () => {
   );
 });
 
+test("not signed in: shows a busy label while registering", async () => {
+  mocked.getInviteInfo.mockResolvedValue(clientInvitesAccountant);
+  let resolveSignUp: (user: { id: string; role: string }) => void;
+  mockSignUp.mockReturnValue(
+    new Promise((resolve) => {
+      resolveSignUp = resolve;
+    }),
+  );
+  renderScreen();
+
+  await waitFor(() => expect(screen.getByLabelText("Ad Soyad")).toBeOnTheScreen());
+  fireEvent.changeText(screen.getByLabelText("Ad Soyad"), "Ayşe Yıldırım");
+  fireEvent.changeText(screen.getByLabelText("Şifre"), "password123");
+  fireEvent.press(screen.getByText("Daveti kabul et"));
+
+  await waitFor(() => expect(screen.getByText("Hesap oluşturuluyor…")).toBeOnTheScreen());
+  expect(screen.getByLabelText("Daveti kabul et")).toBeDisabled();
+
+  resolveSignUp!({ id: "u1", role: "accountant" });
+  await waitFor(() => expect(mockSignUp).toHaveBeenCalled());
+});
+
 test("not signed in: rejects a short password without calling signUp", async () => {
   mocked.getInviteInfo.mockResolvedValue(clientInvitesAccountant);
   renderScreen();

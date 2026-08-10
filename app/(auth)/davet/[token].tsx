@@ -105,7 +105,13 @@ function AcceptInviteByRegistering({ invite, token }: { invite: InviteInfoOut; t
         placeholder="••••••••"
       />
 
-      <Button title="Daveti kabul et" onPress={handleSubmit} loading={loading} disabled={!canSubmit} />
+      <Button
+        title="Daveti kabul et"
+        busyTitle="Hesap oluşturuluyor…"
+        onPress={handleSubmit}
+        loading={loading}
+        disabled={!canSubmit}
+      />
     </>
   );
 }
@@ -166,9 +172,10 @@ function AcceptInviteByConsenting({
 
       {roleMatches ? (
         <Button
-          title={loading ? "Kabul ediliyor…" : "Daveti Kabul Et"}
+          title="Daveti Kabul Et"
+          busyTitle="Kabul ediliyor…"
           onPress={handleAccept}
-          disabled={loading}
+          loading={loading}
         />
       ) : (
         <Button

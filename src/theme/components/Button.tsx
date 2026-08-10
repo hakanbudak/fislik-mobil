@@ -22,14 +22,26 @@ export function Button({
   variant = "primary",
   loading = false,
   disabled = false,
+  busyTitle,
 }: {
   title: string;
   onPress: () => void;
   variant?: Variant;
   loading?: boolean;
   disabled?: boolean;
+  /**
+   * Text shown in place of the bare spinner while `loading` is true — e.g.
+   * "Gönderiliyor…". `accessibilityLabel` always stays `title`, so a screen
+   * reader user never sees the control's name change mid-action; only the
+   * visible label swaps. Mirrors `fislik-web/src/components/Button.tsx`,
+   * where callers swap their own busy copy in and no spinner is shown —
+   * so when `busyTitle` is set, no `ActivityIndicator` renders either.
+   * Omit it to keep the original spinner-only busy state.
+   */
+  busyTitle?: string;
 }) {
   const inactive = loading || disabled;
+  const showBusyTitle = loading && busyTitle !== undefined;
   return (
     <Pressable
       accessibilityRole="button"
@@ -43,10 +55,12 @@ export function Button({
         variant === "secondary" && styles.bordered,
       ]}
     >
-      {loading ? (
+      {loading && !busyTitle ? (
         <ActivityIndicator color={FOREGROUND[variant]} />
       ) : (
-        <Text style={[text.label, { color: FOREGROUND[variant] }]}>{title}</Text>
+        <Text style={[text.label, { color: FOREGROUND[variant] }]}>
+          {showBusyTitle ? busyTitle : title}
+        </Text>
       )}
     </Pressable>
   );
