@@ -38,6 +38,11 @@ const MIN_PASSWORD_LENGTH = 8;
  * biometric-unlock switch has no web counterpart — mobile-only — and is
  * hidden entirely when `isBiometricAvailable()` resolves false, since a
  * switch that can never actually work is worse than no switch at all.
+ *
+ * "Nasıl kullanılır" (Task 6), unlike "Firma bilgileri", renders for BOTH
+ * roles — it just routes to a different group's `/yardim` depending on
+ * `role`, since `HelpContent` has its own per-role copy rather than being
+ * a screen only one role has any use for.
  */
 export default function ProfilScreen() {
   const { user, signOut } = useAuth();
@@ -115,6 +120,15 @@ export default function ProfilScreen() {
             <ChevronRight color={tokens.color.primary} size={18} />
           </Pressable>
         ) : null}
+
+        <Pressable
+          accessibilityRole="button"
+          style={styles.linkCard}
+          onPress={() => router.push(role === "client" ? "/(client)/yardim" : "/(accountant)/yardim")}
+        >
+          <Text style={[text.label, styles.linkText]}>Nasıl kullanılır</Text>
+          <ChevronRight color={tokens.color.primary} size={18} />
+        </Pressable>
 
         {biometricAvailable ? (
           <View style={styles.card}>

@@ -74,6 +74,30 @@ test("pressing the firma bilgileri card navigates there", async () => {
   expect(mockedRouter.push).toHaveBeenCalledWith("/(client)/firma-bilgileri");
 });
 
+test("links to the help page for both a client and an accountant", async () => {
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("Nasıl kullanılır")).toBeOnTheScreen());
+
+  mockedUseAuth.mockReturnValue({ user: { ...client, role: "accountant" }, status: "authed", signOut });
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("Muhasebeci")).toBeOnTheScreen());
+  expect(screen.getByText("Nasıl kullanılır")).toBeOnTheScreen();
+});
+
+test("pressing the help card routes to the right group per role", async () => {
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("Nasıl kullanılır")).toBeOnTheScreen());
+  fireEvent.press(screen.getByText("Nasıl kullanılır"));
+  expect(mockedRouter.push).toHaveBeenCalledWith("/(client)/yardim");
+
+  mockedRouter.push.mockClear();
+  mockedUseAuth.mockReturnValue({ user: { ...client, role: "accountant" }, status: "authed", signOut });
+  renderScreen();
+  await waitFor(() => expect(screen.getByText("Muhasebeci")).toBeOnTheScreen());
+  fireEvent.press(screen.getByText("Nasıl kullanılır"));
+  expect(mockedRouter.push).toHaveBeenCalledWith("/(accountant)/yardim");
+});
+
 test("hides the biometric switch entirely when unavailable on the device", async () => {
   mockedBiometrics.isBiometricAvailable.mockResolvedValue(false);
   renderScreen();

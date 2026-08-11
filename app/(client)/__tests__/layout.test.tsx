@@ -43,7 +43,7 @@ function renderLayout() {
 }
 
 const VISIBLE_ROUTES = ["index", "muhasebecim", "bildirimler", "profil"];
-const HIDDEN_ROUTES = ["kamera", "firma-bilgileri", "fis/[id]"];
+const HIDDEN_ROUTES = ["kamera", "firma-bilgileri", "fis/[id]", "yardim"];
 
 test("every route expo-router registers for this group is either an intended tab or hidden with href: null", () => {
   // Derived from the real on-disk files in `app/(client)/` via expo-router's

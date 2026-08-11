@@ -40,7 +40,12 @@ const VISIBLE_ROUTES = ["index", "bildirimler", "profil"];
 // hoisted to the nearest one, named by their path relative to it). The
 // exact names below are asserted against expo-router's real `getRoutes()`
 // output below, not just assumed.
-const HIDDEN_ROUTES = ["mukellef/[clientId]", "mukellef/[clientId]/kamera", "mukellef/[clientId]/fis/[id]"];
+const HIDDEN_ROUTES = [
+  "mukellef/[clientId]",
+  "mukellef/[clientId]/kamera",
+  "mukellef/[clientId]/fis/[id]",
+  "yardim",
+];
 
 test("every route expo-router registers for this group is either an intended tab or hidden with href: null", () => {
   // Derived from the real on-disk files in `app/(accountant)/` via

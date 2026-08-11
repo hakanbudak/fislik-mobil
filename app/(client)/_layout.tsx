@@ -20,9 +20,10 @@ import { font, text } from "@/src/theme/typography";
  * element ends up topmost (the banner when impersonating, the header
  * otherwise) clears the status bar/Dynamic Island.
  *
- * `kamera`, `firma-bilgileri` and `fis/[id]` are real routes in this group
- * (reachable via `router.push`) but aren't destinations of their own — they
- * leaked into the bar as untitled placeholder tabs before this fix.
+ * `kamera`, `firma-bilgileri`, `fis/[id]` and `yardim` are real routes in
+ * this group (reachable via `router.push`) but aren't destinations of
+ * their own — they leaked into the bar as untitled placeholder tabs before
+ * this fix.
  * `href: null` is expo-router's documented way to keep a route registered
  * (so linking to it still works) while excluding it from the tab bar.
  *
@@ -87,6 +88,7 @@ export default function ClientTabsLayout() {
         <Tabs.Screen name="kamera" options={{ href: null }} />
         <Tabs.Screen name="firma-bilgileri" options={{ href: null }} />
         <Tabs.Screen name="fis/[id]" options={{ href: null }} />
+        <Tabs.Screen name="yardim" options={{ href: null }} />
       </Tabs>
     </View>
   );

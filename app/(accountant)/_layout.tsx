@@ -77,6 +77,7 @@ export default function AccountantTabsLayout() {
         <Tabs.Screen name="mukellef/[clientId]" options={{ href: null }} />
         <Tabs.Screen name="mukellef/[clientId]/kamera" options={{ href: null }} />
         <Tabs.Screen name="mukellef/[clientId]/fis/[id]" options={{ href: null }} />
+        <Tabs.Screen name="yardim" options={{ href: null }} />
       </Tabs>
     </View>
   );
