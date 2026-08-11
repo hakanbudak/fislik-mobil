@@ -1,0 +1,138 @@
+import { useQuery } from "@tanstack/react-query";
+import { router } from "expo-router";
+import { ChevronRight } from "lucide-react-native";
+import { useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { listClients } from "@/src/api/endpoints";
+import { queryKeys } from "@/src/api/queryKeys";
+import { ClientCard } from "@/src/features/clients/ClientCard";
+import { GrantsSection } from "@/src/features/grants/GrantsSection";
+import { apiErrorMessage } from "@/src/lib/errors";
+import { currentPeriod } from "@/src/lib/period";
+import { EmptyState } from "@/src/theme/components/EmptyState";
+import { ErrorCard } from "@/src/theme/components/ErrorCard";
+import { MonthPicker } from "@/src/theme/components/MonthPicker";
+import { Spinner } from "@/src/theme/components/Spinner";
+import { tokens } from "@/src/theme/tokens";
+import { text } from "@/src/theme/typography";
+
+/**
+ * "Mükellefler" screen — the accountant's landing page. Mirrors
+ * `fislik-web/src/pages/AccountantClientsPage.tsx`: a month picker driving
+ * `listClients(period)`, the mutual-consent invitations surface above the
+ * list (here the whole `<GrantsSection role="accountant" />` — Task 18
+ * built it role-aware precisely so it slots in here without a second
+ * invitations UI, unlike the web page which hand-rolls its own incoming/
+ * outgoing invite blocks), then the client roster itself.
+ *
+ * `showEmptyState={false}` on `GrantsSection`: unlike the client's
+ * Muhasebecim screen, this screen has exactly one empty state — the client
+ * list's, below — matching `AccountantClientsPage.tsx` exactly (its
+ * incoming-invites block renders only when non-empty, no empty state of its
+ * own). Passing `role="accountant"` alone would otherwise render a second,
+ * near-duplicate "Henüz mükellefiniz yok" empty state from `GrantsSection`
+ * itself.
+ *
+ * `showActiveGrants={false}` on `GrantsSection`: the web's
+ * `AccountantClientsPage.tsx` never lists active grants with a revoke
+ * control on this screen — only incoming pending invites and the viewer's
+ * own outgoing pending invites. Before this prop existed, every client
+ * appeared twice here: once as a `GrantCard` with "Erişimi iptal et", once
+ * as a `ClientCard` below with that month's upload status. Revoking now
+ * lives on the dedicated "Mükellefleri yönet" page (linked below, just
+ * above the client list), which this screen navigates to.
+ *
+ * Deliberately NOT matching the web: the invite form stays inline
+ * (`GrantsSection`'s `InviteForm`), not the web's modal
+ * ("Mükellef davet et"). A modal for a single e-mail field is worse on a
+ * phone than an inline form; the wording is faithful, only the container
+ * differs. Do not "fix" this toward the web.
+ *
+ * Tapping a client pushes to `/(accountant)/mukellef/[clientId]` with the
+ * currently viewed `period` and the client's `full_name` as route params.
+ * `full_name` mirrors the web's `AccountantClientsPage.tsx` navigating with
+ * `state: { fullName: client.full_name, period }` — Expo Router has no
+ * router-state equivalent, so the name travels as a plain param instead;
+ * the month screen (Task 22) reads it to paint its header immediately,
+ * without waiting on its own company fetch.
+ */
+export default function AccountantClientsScreen() {
+  const [period, setPeriod] = useState(currentPeriod());
+
+  const clientsQuery = useQuery({
+    queryKey: queryKeys.clients(period),
+    queryFn: () => listClients(period),
+    retry: false,
+  });
+
+  const clients = clientsQuery.data ?? [];
+
+  return (
+    <ScrollView style={styles.page} contentContainerStyle={styles.content}>
+      <View style={styles.header}>
+        <Text style={[text.title, styles.title]}>Mükellefler</Text>
+        <MonthPicker value={period} onChange={setPeriod} />
+      </View>
+
+      <GrantsSection role="accountant" showEmptyState={false} showActiveGrants={false} />
+
+      <Pressable
+        accessibilityRole="button"
+        style={styles.linkCard}
+        onPress={() => router.push("/(accountant)/mukellefleri-yonet")}
+      >
+        <Text style={[text.label, styles.linkText]}>Mükellefleri yönet</Text>
+        <ChevronRight color={tokens.color.primary} size={18} />
+      </Pressable>
+
+      {clientsQuery.isLoading ? (
+        <View style={styles.center}>
+          <Spinner />
+        </View>
+      ) : null}
+
+      {clientsQuery.isError ? (
+        <ErrorCard message={apiErrorMessage(clientsQuery.error)} onRetry={() => clientsQuery.refetch()} />
+      ) : null}
+
+      {clientsQuery.isSuccess && clients.length === 0 ? (
+        <EmptyState
+          title="Henüz mükellefiniz yok"
+          description="Yukarıdan mükellefinizi e-postayla davet edin ya da mükellefinizin kendi hesabından göndereceği daveti kabul edin."
+        />
+      ) : null}
+
+      {clients.map((client) => (
+        <ClientCard
+          key={client.client_id}
+          client={client}
+          onPress={() =>
+            router.push({
+              pathname: "/(accountant)/mukellef/[clientId]",
+              params: { clientId: client.client_id, period, full_name: client.full_name },
+            })
+          }
+        />
+      ))}
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  page: { flex: 1, backgroundColor: tokens.color.page },
+  content: { gap: tokens.space(3), padding: tokens.space(3), paddingBottom: tokens.space(8) },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  title: { color: tokens.color.ink },
+  center: { alignItems: "center", justifyContent: "center", padding: tokens.space(6) },
+  linkCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: tokens.space(4),
+    borderRadius: tokens.radius.lg,
+    backgroundColor: tokens.color.card,
+    borderWidth: 1,
+    borderColor: tokens.color.border,
+  },
+  linkText: { color: tokens.color.ink },
+});
