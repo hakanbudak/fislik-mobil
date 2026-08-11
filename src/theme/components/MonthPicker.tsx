@@ -20,6 +20,7 @@ export function MonthPicker({ value, onChange }: { value: string; onChange: (nex
         accessibilityLabel="Önceki ay"
         onPress={() => onChange(shiftPeriod(value, -1))}
         style={styles.button}
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
       >
         <ChevronLeft size={16} color={tokens.color.inkSoft} />
       </Pressable>
@@ -31,6 +32,7 @@ export function MonthPicker({ value, onChange }: { value: string; onChange: (nex
         disabled={atCurrent}
         onPress={() => onChange(shiftPeriod(value, 1))}
         style={[styles.button, atCurrent && styles.disabled]}
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
       >
         <ChevronRight size={16} color={tokens.color.inkSoft} />
       </Pressable>

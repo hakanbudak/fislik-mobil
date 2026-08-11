@@ -506,7 +506,7 @@ const styles = StyleSheet.create({
   sectionTitle: { color: tokens.color.inkSoft },
   row: { flexDirection: "row", gap: tokens.space(3) },
   rowItem: { flex: 1 },
-  rowItemSmall: { width: 108 },
+  rowItemSmall: { flex: 1, minWidth: 96 },
   fieldWrap: { gap: tokens.space(1.5) },
   fieldLabel: { color: tokens.color.inkSoft },
   segmentRow: { flexDirection: "row", flexWrap: "wrap", gap: tokens.space(1.5) },

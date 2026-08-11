@@ -115,7 +115,13 @@ export function CaptureScreen({
     <View style={styles.container}>
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
 
-      <Pressable accessibilityRole="button" accessibilityLabel="Kapat" style={styles.close} onPress={onClose}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Kapat"
+        style={styles.close}
+        hitSlop={{ top: 2, bottom: 2, left: 2, right: 2 }}
+        onPress={onClose}
+      >
         <X color={tokens.color.onPrimary} size={24} />
       </Pressable>
 
