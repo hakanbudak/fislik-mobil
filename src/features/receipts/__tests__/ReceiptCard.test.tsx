@@ -127,6 +127,22 @@ test("leaves an unprocessed receipt's card with the ordinary border", () => {
   expect(card.borderColor).toBe(tokens.color.border);
 });
 
+// Mobile-fit follow-up: the badge stack sits absolutely positioned over the
+// receipt photo, which is usually white/near-white paper. The default
+// Badge surface (translucent tint, tone-coloured text) is nearly invisible
+// there, so every badge in this stack must use the opaque "onImage" surface
+// — pinned here via its `onPrimary` (light) text colour, which only the
+// onImage surface produces.
+test("renders the 'İşlendi' badge with the opaque onImage surface, not the translucent default", () => {
+  render(<ReceiptCard receipt={{ ...base, processed: true }} onPress={jest.fn()} />);
+  expect(screen.getByText("İşlendi")).toHaveStyle({ color: tokens.color.onPrimary });
+});
+
+test("renders the analysis badge over the photo with the opaque onImage surface", () => {
+  render(<ReceiptCard receipt={{ ...base, extraction: null }} onPress={jest.fn()} />);
+  expect(screen.getByText("Sıraya alındı")).toHaveStyle({ color: tokens.color.onPrimary });
+});
+
 test("puts the 'İşlendi' badge first in the stack, ahead of 'Muhasebeci yükledi'", () => {
   render(
     <ReceiptCard

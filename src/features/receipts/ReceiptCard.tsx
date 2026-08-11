@@ -88,11 +88,11 @@ export function ReceiptCard({
           legible (see the card border below), so it must never be pushed
           down by another badge, e.g. "Muhasebeci yükledi" when both apply.
         */}
-        {receipt.processed ? <Badge label="İşlendi" tone="success" /> : null}
-        {receipt.uploaded_by ? <Badge label="Muhasebeci yükledi" tone="neutral" /> : null}
-        {receipt.open_issue ? <Badge label="Sorun var" tone="warning" /> : null}
-        {wrongMonth ? <Badge label="Farklı ay" tone="warning" /> : null}
-        {analysis ? <Badge label={analysis.label} tone={analysis.tone} /> : null}
+        {receipt.processed ? <Badge label="İşlendi" tone="success" surface="onImage" /> : null}
+        {receipt.uploaded_by ? <Badge label="Muhasebeci yükledi" tone="neutral" surface="onImage" /> : null}
+        {receipt.open_issue ? <Badge label="Sorun var" tone="warning" surface="onImage" /> : null}
+        {wrongMonth ? <Badge label="Farklı ay" tone="warning" surface="onImage" /> : null}
+        {analysis ? <Badge label={analysis.label} tone={analysis.tone} surface="onImage" /> : null}
       </View>
       <View style={styles.footer}>
         <Text style={[text.label, styles.merchant]} numberOfLines={1}>
