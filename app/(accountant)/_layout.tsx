@@ -2,6 +2,7 @@ import { Tabs } from "expo-router";
 import { User, Users } from "lucide-react-native";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { AuthGate } from "@/src/auth/AuthGate";
 import { ImpersonationBanner } from "@/src/auth/ImpersonationBanner";
 import { NotificationTabIcon } from "@/src/features/notifications/NotificationTabIcon";
 import { AppHeader } from "@/src/theme/components/AppHeader";
@@ -39,53 +40,55 @@ import { font, text } from "@/src/theme/typography";
 export default function AccountantTabsLayout() {
   const insets = useSafeAreaInsets();
   return (
-    <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: tokens.color.card }}>
-      <ImpersonationBanner />
-      <AppHeader />
-      <Tabs
-        screenOptions={{
-          headerShown: false,
-          tabBarActiveTintColor: tokens.color.primary,
-          tabBarInactiveTintColor: tokens.color.inkSoft,
-          tabBarStyle: {
-            backgroundColor: tokens.color.card,
-            borderTopColor: tokens.color.border,
-            borderTopWidth: 1,
-            paddingTop: tokens.space(1.5),
-            paddingBottom: tokens.space(2.5) + insets.bottom,
-            height: 56 + insets.bottom,
-          },
-          tabBarLabelStyle: { ...text.caption, fontFamily: font.bold, fontSize: 10 },
-          tabBarIconStyle: { marginBottom: 0 },
-        }}
-      >
-        <Tabs.Screen
-          name="index"
-          options={{
-            title: "Mükellefler",
-            tabBarIcon: ({ color }) => <Users color={color} size={21} strokeWidth={1.9} />,
+    <AuthGate>
+      <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: tokens.color.card }}>
+        <ImpersonationBanner />
+        <AppHeader />
+        <Tabs
+          screenOptions={{
+            headerShown: false,
+            tabBarActiveTintColor: tokens.color.primary,
+            tabBarInactiveTintColor: tokens.color.inkSoft,
+            tabBarStyle: {
+              backgroundColor: tokens.color.card,
+              borderTopColor: tokens.color.border,
+              borderTopWidth: 1,
+              paddingTop: tokens.space(1.5),
+              paddingBottom: tokens.space(2.5) + insets.bottom,
+              height: 56 + insets.bottom,
+            },
+            tabBarLabelStyle: { ...text.caption, fontFamily: font.bold, fontSize: 10 },
+            tabBarIconStyle: { marginBottom: 0 },
           }}
-        />
-        <Tabs.Screen
-          name="bildirimler"
-          options={{
-            title: "Bildirimler",
-            tabBarIcon: ({ color }) => <NotificationTabIcon color={color} size={21} />,
-          }}
-        />
-        <Tabs.Screen
-          name="profil"
-          options={{
-            title: "Profil",
-            tabBarIcon: ({ color }) => <User color={color} size={21} strokeWidth={1.9} />,
-          }}
-        />
-        <Tabs.Screen name="mukellef/[clientId]" options={{ href: null }} />
-        <Tabs.Screen name="mukellef/[clientId]/kamera" options={{ href: null }} />
-        <Tabs.Screen name="mukellef/[clientId]/fis/[id]" options={{ href: null }} />
-        <Tabs.Screen name="mukellefleri-yonet" options={{ href: null }} />
-        <Tabs.Screen name="yardim" options={{ href: null }} />
-      </Tabs>
-    </View>
+        >
+          <Tabs.Screen
+            name="index"
+            options={{
+              title: "Mükellefler",
+              tabBarIcon: ({ color }) => <Users color={color} size={21} strokeWidth={1.9} />,
+            }}
+          />
+          <Tabs.Screen
+            name="bildirimler"
+            options={{
+              title: "Bildirimler",
+              tabBarIcon: ({ color }) => <NotificationTabIcon color={color} size={21} />,
+            }}
+          />
+          <Tabs.Screen
+            name="profil"
+            options={{
+              title: "Profil",
+              tabBarIcon: ({ color }) => <User color={color} size={21} strokeWidth={1.9} />,
+            }}
+          />
+          <Tabs.Screen name="mukellef/[clientId]" options={{ href: null }} />
+          <Tabs.Screen name="mukellef/[clientId]/kamera" options={{ href: null }} />
+          <Tabs.Screen name="mukellef/[clientId]/fis/[id]" options={{ href: null }} />
+          <Tabs.Screen name="mukellefleri-yonet" options={{ href: null }} />
+          <Tabs.Screen name="yardim" options={{ href: null }} />
+        </Tabs>
+      </View>
+    </AuthGate>
   );
 }

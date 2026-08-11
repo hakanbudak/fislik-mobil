@@ -2,6 +2,7 @@ import { router, Tabs } from "expo-router";
 import { Camera, Receipt, User, Users } from "lucide-react-native";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { AuthGate } from "@/src/auth/AuthGate";
 import { ImpersonationBanner } from "@/src/auth/ImpersonationBanner";
 import { NotificationTabIcon } from "@/src/features/notifications/NotificationTabIcon";
 import { AppHeader } from "@/src/theme/components/AppHeader";
@@ -56,81 +57,83 @@ export default function ClientTabsLayout() {
   // "half inside the bar, half outside it" — for any device's inset.
   const cameraButtonOffset = tabBarHeight - CAMERA_BUTTON_SIZE / 2;
   return (
-    <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: tokens.color.card }}>
-      <ImpersonationBanner />
-      <AppHeader />
-      <Tabs
-        screenOptions={{
-          headerShown: false,
-          tabBarActiveTintColor: tokens.color.primary,
-          tabBarInactiveTintColor: tokens.color.inkSoft,
-          tabBarStyle: {
-            backgroundColor: tokens.color.card,
-            borderTopColor: tokens.color.border,
-            borderTopWidth: 1,
-            paddingTop: tokens.space(1.5),
-            paddingBottom: tokens.space(2.5) + insets.bottom,
-            height: tabBarHeight,
-          },
-          tabBarLabelStyle: { ...text.caption, fontFamily: font.bold, fontSize: 10 },
-          tabBarIconStyle: { marginBottom: 0 },
-        }}
-      >
-        <Tabs.Screen
-          name="index"
-          options={{
-            title: "Fişler",
-            tabBarIcon: ({ color }) => <Receipt color={color} size={21} strokeWidth={1.9} />,
+    <AuthGate>
+      <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: tokens.color.card }}>
+        <ImpersonationBanner />
+        <AppHeader />
+        <Tabs
+          screenOptions={{
+            headerShown: false,
+            tabBarActiveTintColor: tokens.color.primary,
+            tabBarInactiveTintColor: tokens.color.inkSoft,
+            tabBarStyle: {
+              backgroundColor: tokens.color.card,
+              borderTopColor: tokens.color.border,
+              borderTopWidth: 1,
+              paddingTop: tokens.space(1.5),
+              paddingBottom: tokens.space(2.5) + insets.bottom,
+              height: tabBarHeight,
+            },
+            tabBarLabelStyle: { ...text.caption, fontFamily: font.bold, fontSize: 10 },
+            tabBarIconStyle: { marginBottom: 0 },
           }}
-        />
-        <Tabs.Screen
-          name="muhasebecim"
-          options={{
-            title: "Muhasebecim",
-            tabBarIcon: ({ color }) => <Users color={color} size={21} strokeWidth={1.9} />,
-          }}
-        />
-        <Tabs.Screen
-          name="kamera"
-          options={{
-            // Reserves centred space in the bar; the real, tappable button
-            // is rendered as an overlay below, not as this tab's button.
-            tabBarButton: () => <View style={{ flex: 1 }} />,
-          }}
-        />
-        <Tabs.Screen
-          name="bildirimler"
-          options={{
-            title: "Bildirimler",
-            tabBarIcon: ({ color }) => <NotificationTabIcon color={color} size={21} />,
-          }}
-        />
-        <Tabs.Screen
-          name="profil"
-          options={{
-            title: "Profil",
-            tabBarIcon: ({ color }) => <User color={color} size={21} strokeWidth={1.9} />,
-          }}
-        />
-        <Tabs.Screen name="firma-bilgileri" options={{ href: null }} />
-        <Tabs.Screen name="fis/[id]" options={{ href: null }} />
-        <Tabs.Screen name="yardim" options={{ href: null }} />
-      </Tabs>
-      <View
-        testID="camera-button-overlay"
-        pointerEvents="box-none"
-        style={{ position: "absolute", left: 0, right: 0, bottom: cameraButtonOffset, alignItems: "center" }}
-      >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Fiş çek"
-          style={styles.cameraButton}
-          onPress={() => router.push("/(client)/kamera")}
         >
-          <Camera color={tokens.color.onPrimary} size={24} />
-        </Pressable>
+          <Tabs.Screen
+            name="index"
+            options={{
+              title: "Fişler",
+              tabBarIcon: ({ color }) => <Receipt color={color} size={21} strokeWidth={1.9} />,
+            }}
+          />
+          <Tabs.Screen
+            name="muhasebecim"
+            options={{
+              title: "Muhasebecim",
+              tabBarIcon: ({ color }) => <Users color={color} size={21} strokeWidth={1.9} />,
+            }}
+          />
+          <Tabs.Screen
+            name="kamera"
+            options={{
+              // Reserves centred space in the bar; the real, tappable button
+              // is rendered as an overlay below, not as this tab's button.
+              tabBarButton: () => <View style={{ flex: 1 }} />,
+            }}
+          />
+          <Tabs.Screen
+            name="bildirimler"
+            options={{
+              title: "Bildirimler",
+              tabBarIcon: ({ color }) => <NotificationTabIcon color={color} size={21} />,
+            }}
+          />
+          <Tabs.Screen
+            name="profil"
+            options={{
+              title: "Profil",
+              tabBarIcon: ({ color }) => <User color={color} size={21} strokeWidth={1.9} />,
+            }}
+          />
+          <Tabs.Screen name="firma-bilgileri" options={{ href: null }} />
+          <Tabs.Screen name="fis/[id]" options={{ href: null }} />
+          <Tabs.Screen name="yardim" options={{ href: null }} />
+        </Tabs>
+        <View
+          testID="camera-button-overlay"
+          pointerEvents="box-none"
+          style={{ position: "absolute", left: 0, right: 0, bottom: cameraButtonOffset, alignItems: "center" }}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Fiş çek"
+            style={styles.cameraButton}
+            onPress={() => router.push("/(client)/kamera")}
+          >
+            <Camera color={tokens.color.onPrimary} size={24} />
+          </Pressable>
+        </View>
       </View>
-    </View>
+    </AuthGate>
   );
 }
 
