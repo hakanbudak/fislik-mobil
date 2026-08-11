@@ -18,3 +18,12 @@ test("wraps the app in the gesture and safe-area providers", () => {
   expect(screen.UNSAFE_getByType(GestureHandlerRootView)).toBeTruthy();
   expect(screen.UNSAFE_getByType(SafeAreaProvider)).toBeTruthy();
 });
+
+test("GestureHandlerRootView is the outermost provider and carries flex: 1, or gesture handling silently dies on Android and the tree can collapse to zero height", () => {
+  render(<RootLayout />);
+  const outer = screen.UNSAFE_getByType(GestureHandlerRootView);
+  expect(outer.findByType(SafeAreaProvider)).toBeTruthy();
+
+  const flattened = Object.assign({}, ...[outer.props.style].flat());
+  expect(flattened.flex).toBe(1);
+});

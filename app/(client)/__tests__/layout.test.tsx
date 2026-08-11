@@ -2,6 +2,7 @@
 import path from "node:path";
 import { Tabs } from "expo-router";
 import { render, screen } from "@testing-library/react-native";
+import { View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import ClientTabsLayout from "../_layout";
 import { registeredRouteNames } from "@/src/test/expoRouterRegistry";
@@ -28,10 +29,14 @@ jest.mock("@/src/auth/AuthProvider", () => ({
 }));
 
 // Matches this repo's `initialMetrics` shape for testing components that
-// call `useSafeAreaInsets()` outside the app's real root.
+// call `useSafeAreaInsets()` outside the app's real root. Both insets are
+// non-zero (iPhone 15 Pro-shaped) so a test asserting against them can
+// actually fail if the padding that consumes them is deleted — a `top: 0`
+// metric made the previous version of this suite pass whether or not the
+// shell applied `insets.top` at all.
 const metrics = {
   frame: { x: 0, y: 0, width: 320, height: 640 },
-  insets: { top: 0, left: 0, right: 0, bottom: 34 },
+  insets: { top: 59, left: 0, right: 0, bottom: 34 },
 };
 
 function renderLayout() {
@@ -66,4 +71,15 @@ test("every route expo-router registers for this group is either an intended tab
       expect(screenElement?.props.options?.href).not.toBeNull();
     }
   }
+});
+
+test("pads the outer view for the top inset and folds the bottom inset into the tab bar, so no content sits under the notch or the home indicator", () => {
+  renderLayout();
+  const outerView = screen.UNSAFE_getByType(View);
+  const outerStyle = Object.assign({}, ...[outerView.props.style].flat());
+  expect(outerStyle.paddingTop).toBe(59);
+
+  const tabBarStyle = screen.UNSAFE_getByType(Tabs).props.screenOptions.tabBarStyle;
+  expect(tabBarStyle.paddingBottom).toBe(10 + 34);
+  expect(tabBarStyle.height).toBe(56 + 34);
 });
