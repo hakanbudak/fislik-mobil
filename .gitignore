@@ -48,3 +48,6 @@ yarn-error.*
 
 # project scratch space (not part of the app)
 .superpowers/
+
+# design/planning notes kept locally, not part of the repo
+docs/superpowers/
