@@ -18,6 +18,17 @@ import { Spinner } from "@/src/theme/components/Spinner";
  * `status === "loading"`, so the login screen never flashes before the
  * tour. Only consulted for `anon`: a signed-in user must never see it.
  *
+ * This is the app's only entry point, so a rejected read must fail open:
+ * the `.catch` below treats an unreadable flag as "seen" and sends the
+ * user to `/giris`. Wrongly skipping the tour costs a user a four-slide
+ * introduction they can still reach from the help page; wrongly blocking
+ * here — the alternative of leaving `introSeen` unset — leaves the
+ * `Spinner` mounted forever with no way to reach the app at all. Deliberately
+ * handled here rather than inside `hasSeenIntro()`: that function's
+ * contract is to report actual storage state, and this fail-open policy is
+ * specific to this route's stakes as the sole gate into the app, not a
+ * property every caller of the flag should inherit.
+ *
  * The `@/`-aliased imports above are a permanent guard, not incidental —
  * they are the only proof that Metro resolves the path alias at bundle
  * time, which CI's `expo export` step depends on. Keep at least one when
@@ -29,7 +40,7 @@ export default function Index() {
 
   useEffect(() => {
     if (status !== "anon") return;
-    hasSeenIntro().then(setIntroSeen);
+    hasSeenIntro().then(setIntroSeen, () => setIntroSeen(true));
   }, [status]);
 
   if (status === "loading") return <Spinner />;

@@ -37,6 +37,13 @@ test("a second launch (intro already seen) goes straight to the login screen", a
   await waitFor(() => expect(mockedRedirect).toHaveBeenCalledWith({ href: "/giris" }, undefined));
 });
 
+test("a failed flag read fails open, landing on the login screen rather than spinning forever", async () => {
+  mockedStorage.getItem.mockRejectedValue(new Error("storage unavailable"));
+  mockUseAuth.mockReturnValue({ status: "anon", user: null });
+  render(<Index />);
+  await waitFor(() => expect(mockedRedirect).toHaveBeenCalledWith({ href: "/giris" }, undefined));
+});
+
 test("holds the redirect, showing no Redirect call, while the flag is being read", () => {
   mockedStorage.getItem.mockReturnValue(new Promise(() => {})); // never resolves within the test
   mockUseAuth.mockReturnValue({ status: "anon", user: null });

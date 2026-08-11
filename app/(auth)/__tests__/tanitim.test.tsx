@@ -1,5 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
+import { Dimensions } from "react-native";
 import TanitimScreen from "../tanitim";
+
+const { width } = Dimensions.get("window");
 
 const mockReplace = jest.fn();
 jest.mock("expo-router", () => ({ router: { replace: (...args: unknown[]) => mockReplace(...args) } }));
@@ -20,4 +23,19 @@ test("pressing Geç marks the intro seen and leaves for the login screen", async
   expect(mockMarkIntroSeen).toHaveBeenCalled();
   await Promise.resolve();
   expect(mockReplace).toHaveBeenCalledWith("/giris");
+});
+
+test("the last slide shows Başla instead of İleri, and still shows Geç", () => {
+  render(<TanitimScreen />);
+  const list = screen.getByTestId("tanitim-slides");
+  // Land on the fourth (last) slide by simulating the paging scroll a real
+  // swipe would produce, rather than asserting against the component's own
+  // index math.
+  fireEvent(list, "momentumScrollEnd", {
+    nativeEvent: { contentOffset: { x: 3 * width } },
+  });
+
+  expect(screen.getByText("Başla")).toBeOnTheScreen();
+  expect(screen.queryByText("İleri")).not.toBeOnTheScreen();
+  expect(screen.getByText("Geç")).toBeOnTheScreen();
 });

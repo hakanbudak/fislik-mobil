@@ -75,6 +75,7 @@ export default function TanitimScreen() {
   return (
     <View style={styles.page}>
       <FlatList
+        testID="tanitim-slides"
         ref={listRef}
         data={SLIDES}
         keyExtractor={(item) => item.key}
