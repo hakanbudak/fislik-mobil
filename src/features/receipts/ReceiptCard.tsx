@@ -70,7 +70,7 @@ export function ReceiptCard({
       accessibilityLabel="Fiş"
       onPress={onPress}
       onLongPress={onLongPress}
-      style={styles.card}
+      style={[styles.card, receipt.processed ? styles.cardProcessed : null]}
     >
       <View style={styles.thumbWrap}>
         {isPdf(receipt) ? (
@@ -83,8 +83,13 @@ export function ReceiptCard({
         )}
       </View>
       <View style={styles.badges}>
-        {receipt.uploaded_by ? <Badge label="Muhasebeci yükledi" tone="neutral" /> : null}
+        {/*
+          "İşlendi" leads the stack — it's the state this card exists to make
+          legible (see the card border below), so it must never be pushed
+          down by another badge, e.g. "Muhasebeci yükledi" when both apply.
+        */}
         {receipt.processed ? <Badge label="İşlendi" tone="success" /> : null}
+        {receipt.uploaded_by ? <Badge label="Muhasebeci yükledi" tone="neutral" /> : null}
         {receipt.open_issue ? <Badge label="Sorun var" tone="warning" /> : null}
         {wrongMonth ? <Badge label="Farklı ay" tone="warning" /> : null}
         {analysis ? <Badge label={analysis.label} tone={analysis.tone} /> : null}
@@ -109,6 +114,17 @@ const styles = StyleSheet.create({
     borderRadius: tokens.radius.lg,
     overflow: "hidden",
     margin: tokens.space(1),
+  },
+  // Mobile-fit follow-up: the "İşlendi" badge alone was too easy to miss —
+  // a small pill over a photo of white paper, sometimes pushed down the
+  // badge stack by another badge. A processed receipt's whole card now
+  // carries this heavier, success-toned border instead, so the state reads
+  // at a glance across a grid without covering the thumbnail. The badge
+  // text stays too (see the render below) — the border is a second signal,
+  // not a replacement, so the state is never conveyed by colour alone.
+  cardProcessed: {
+    borderWidth: 2,
+    borderColor: tokens.color.success,
   },
   thumbWrap: { aspectRatio: 3 / 4, backgroundColor: tokens.color.surface },
   thumb: { width: "100%", height: "100%" },

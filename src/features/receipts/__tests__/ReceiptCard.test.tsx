@@ -1,6 +1,16 @@
 import { render, screen } from "@testing-library/react-native";
 import type { ReceiptOut } from "@/src/api/endpoints";
+import { tokens } from "@/src/theme/tokens";
 import { ReceiptCard } from "../ReceiptCard";
+
+// Flattens an RN `style` prop (which may be a nested array of style objects,
+// as `Pressable`'s `style` becomes once multiple sources combine) into one
+// plain object, last-wins per key — mirrors RN's own StyleSheet.flatten
+// semantics well enough for asserting a single property.
+function flattenStyle(style: unknown): Record<string, unknown> {
+  if (Array.isArray(style)) return Object.assign({}, ...style.map(flattenStyle));
+  return (style ?? {}) as Record<string, unknown>;
+}
 
 const base: ReceiptOut = {
   id: "r1",
@@ -98,4 +108,32 @@ test("shows the KDV line for a done receipt with a known VAT total", () => {
 test("shows no KDV line when vat_total is null, even though the total is known", () => {
   render(<ReceiptCard receipt={{ ...base, extraction: { ...doneExtraction, vat_total: null } }} onPress={jest.fn()} />);
   expect(screen.queryByText(/^KDV /)).toBeNull();
+});
+
+// Mobile-fit follow-up: a processed receipt's badge alone was too easy to
+// miss over a photo, so the whole card now carries a success-toned border —
+// see the module's card style. These pin the card-level state, not just the
+// badge's presence (already covered above via other assertions).
+
+test("gives a processed receipt's card a success-toned border", () => {
+  render(<ReceiptCard receipt={{ ...base, processed: true }} onPress={jest.fn()} />);
+  const card = flattenStyle(screen.getByLabelText("Fiş").props.style);
+  expect(card.borderColor).toBe(tokens.color.success);
+});
+
+test("leaves an unprocessed receipt's card with the ordinary border", () => {
+  render(<ReceiptCard receipt={{ ...base, processed: false }} onPress={jest.fn()} />);
+  const card = flattenStyle(screen.getByLabelText("Fiş").props.style);
+  expect(card.borderColor).toBe(tokens.color.border);
+});
+
+test("puts the 'İşlendi' badge first in the stack, ahead of 'Muhasebeci yükledi'", () => {
+  render(
+    <ReceiptCard
+      receipt={{ ...base, processed: true, uploaded_by: "acc-1" }}
+      onPress={jest.fn()}
+    />,
+  );
+  const nodes = screen.getAllByText(/^(İşlendi|Muhasebeci yükledi)$/);
+  expect(nodes.map((n) => n.props.children)).toEqual(["İşlendi", "Muhasebeci yükledi"]);
 });
