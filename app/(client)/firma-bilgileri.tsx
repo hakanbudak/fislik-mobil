@@ -152,6 +152,15 @@ export default function FirmaBilgileriScreen() {
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.company(), data);
       queryClient.invalidateQueries({ queryKey: queryKeys.company() });
+      // Onboarding's other exit ("Şimdilik geç", below) already routes
+      // through "/" rather than straight to `/(client)` so the post-login
+      // tour gets a chance to show; a client who instead fills the form in
+      // and saves it needs the same treatment, or the tour would only ever
+      // reach the "skip" half of this screen's onboarding users. Outside
+      // onboarding (editing the profile later from Profil) this screen has
+      // no marker and nothing here fires — the success message stays put,
+      // same as before.
+      if (isOnboarding) router.replace("/");
     },
   });
 
@@ -290,7 +299,13 @@ export default function FirmaBilgileriScreen() {
             <Button
               title="Şimdilik geç"
               variant="secondary"
-              onPress={() => router.replace("/(client)")}
+              // Routes through "/" (the app's entry route), not straight to
+              // `/(client)`, so a freshly-registered client who skips this
+              // step still meets the post-login tour at the natural end of
+              // their onboarding rather than skipping it entirely — see the
+              // save-success handler above for the other exit from this
+              // screen, which does the same.
+              onPress={() => router.replace("/")}
             />
           ) : null}
         </ScrollView>

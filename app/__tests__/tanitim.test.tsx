@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react-native";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Redirect } from "expo-router";
 import { Dimensions } from "react-native";
 import TanitimScreen from "../tanitim";
@@ -67,12 +67,18 @@ test("pressing Geç marks the intro seen and exits through the entry route, not 
   render(<TanitimScreen />);
   fireEvent.press(screen.getByText("Geç"));
   expect(mockMarkIntroSeen).toHaveBeenCalled();
-  await Promise.resolve();
-  // "/" — the app's own entry route (`app/index.tsx`), which dispatches an
-  // anon session to `/giris` and an authed one to its own shell. Asserting
-  // this instead of "/giris" is the C1 regression pin: a replay from the
-  // (authed-only) help page must not be hardcoded back to the login form.
-  expect(mockReplace).toHaveBeenCalledWith("/");
+  // `waitFor` polls rather than assuming a fixed number of microtask turns
+  // for `finish()` to resolve — a hand-tuned `await Promise.resolve()`
+  // count here would silently break the moment `finish()`'s own await
+  // shape changes, even though nothing about this test's actual claim
+  // (what href it ends up navigating to) would be wrong.
+  await waitFor(() =>
+    // "/" — the app's own entry route (`app/index.tsx`), which dispatches an
+    // anon session to `/giris` and an authed one to its own shell. Asserting
+    // this instead of "/giris" is the C1 regression pin: a replay from the
+    // (authed-only) help page must not be hardcoded back to the login form.
+    expect(mockReplace).toHaveBeenCalledWith("/"),
+  );
 });
 
 test("a failed flag write does not trap the user on this screen — finish() still navigates onward", async () => {
@@ -80,9 +86,7 @@ test("a failed flag write does not trap the user on this screen — finish() sti
   mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
   render(<TanitimScreen />);
   fireEvent.press(screen.getByText("Geç"));
-  await Promise.resolve();
-  await Promise.resolve();
-  expect(mockReplace).toHaveBeenCalledWith("/");
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/"));
 });
 
 test("the last slide shows Başla instead of İleri, and still shows Geç, for either role", () => {

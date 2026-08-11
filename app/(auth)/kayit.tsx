@@ -57,9 +57,13 @@ export default function RegisterScreen() {
       // profile is what their accountant reads when filing — so a client
       // is walked straight into company setup with an onboarding marker
       // (read by `app/(client)/firma-bilgileri.tsx` to show its "Şimdilik
-      // geç" skip button) rather than through the entry route, since the
-      // post-login tour must not preempt or interrupt that mandatory step.
-      // Mirrors `fislik-web/src/pages/RegisterPage.tsx`'s `onSuccess`.
+      // geç" skip button) rather than through the entry route directly,
+      // since the post-login tour must not preempt or interrupt that
+      // mandatory step. That screen's own two exits (skip, or a successful
+      // save) route through "/" themselves once onboarding is actually
+      // done, so the tour still meets this user — just at the natural end
+      // of onboarding rather than before it. Mirrors
+      // `fislik-web/src/pages/RegisterPage.tsx`'s `onSuccess`.
       //
       // An accountant has no such profile, so nothing here needs to
       // preempt: routing through "/" (the entry route) instead of straight

@@ -68,7 +68,10 @@ const CLIENT_SLIDES: Slide[] = [
  *  - invite: `mukellefleri-yonet.tsx` / `GrantsSection`'s accountant invite
  *    form (email -> invite -> access on acceptance).
  *  - mark processed: `app/(accountant)/mukellef/[clientId].tsx`'s
- *    `markProcessed`/`bulkMarkProcessed` (long-press one, or select many).
+ *    `markProcessed`/`bulkMarkProcessed` — long-press marks one receipt;
+ *    the bulk control ("Tümünü işlendi yap") is all-or-nothing for the
+ *    period, not a multi-select, which is why the slide's own copy says
+ *    "tek tek ya da hepsini birden" rather than implying a picker.
  *  - close the month: the same screen's `lockPeriod`/`unlockPeriod` — a
  *    locked month blocks the client's edits, and the accountant can reopen
  *    it any time.

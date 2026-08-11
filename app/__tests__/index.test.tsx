@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { render, screen, waitFor } from "@testing-library/react-native";
+import { act, render, screen, waitFor } from "@testing-library/react-native";
 import { Redirect } from "expo-router";
-import Index from "../index";
+import Index, { INTRO_READ_TIMEOUT_MS } from "../index";
 
 const mockUseAuth = jest.fn();
 jest.mock("@/src/auth/AuthProvider", () => ({ useAuth: () => mockUseAuth() }));
@@ -54,6 +54,34 @@ test("holds the redirect, showing no Redirect call, while the flag is being read
   mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
   render(<Index />);
   expect(mockedRedirect).not.toHaveBeenCalled();
+});
+
+// N-th appearance of the same pattern already closed twice in
+// `app/_layout.tsx` (a rejected `useFonts` call, then one that never
+// settles at all): a read that neither resolves nor rejects is just as
+// capable of stranding the user on `Spinner` forever as an outright
+// rejection is — `.catch` alone does nothing for it. This is NOT the same
+// case as the test above: that one only pins that the redirect is still
+// pending immediately after mount (a real, correct wait); this one pins
+// that the wait is bounded, not infinite.
+test("a flag read that never settles still yields a destination within a bound, rather than spinning forever", async () => {
+  jest.useFakeTimers();
+  try {
+    mockedStorage.getItem.mockReturnValue(new Promise(() => {})); // never resolves, ever
+    mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
+    render(<Index />);
+
+    // Still genuinely waiting immediately after mount.
+    expect(mockedRedirect).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(INTRO_READ_TIMEOUT_MS);
+    });
+
+    expect(mockedRedirect).toHaveBeenCalledWith({ href: "/(client)" }, undefined);
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test("redirects an authed accountant with a seen flag to the accountant tab group", async () => {

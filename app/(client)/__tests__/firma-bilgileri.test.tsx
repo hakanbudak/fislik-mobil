@@ -189,7 +189,7 @@ test("shows the onboarding skip button when arriving right after registration", 
   await waitFor(() => expect(screen.getByText("Şimdilik geç")).toBeOnTheScreen());
 });
 
-test("pressing the skip button leaves for the client home without saving", async () => {
+test("pressing the skip button leaves through the entry route without saving, so the post-login tour gets a chance to show", async () => {
   mockSearchParams = { onboarding: "1" };
   mocked.getCompany.mockRejectedValue(new ApiError(404, "not found"));
   renderScreen();
@@ -197,8 +197,38 @@ test("pressing the skip button leaves for the client home without saving", async
   await waitFor(() => expect(screen.getByText("Şimdilik geç")).toBeOnTheScreen());
   fireEvent.press(screen.getByText("Şimdilik geç"));
 
-  expect(mockedRouter.replace).toHaveBeenCalledWith("/(client)");
+  expect(mockedRouter.replace).toHaveBeenCalledWith("/");
   expect(mocked.saveCompany).not.toHaveBeenCalled();
+});
+
+test("a successful save during onboarding also leaves through the entry route, not just the skip button", async () => {
+  mockSearchParams = { onboarding: "1" };
+  mocked.getCompany.mockRejectedValue(new ApiError(404, "not found"));
+  mocked.saveCompany.mockResolvedValue(existingCompany);
+  renderScreen();
+
+  await waitFor(() => expect(screen.getByLabelText("Adı Soyadı")).toBeOnTheScreen());
+  fireEvent.changeText(screen.getByLabelText("Adı Soyadı"), "Ayşe Yıldırım");
+  fireEvent.changeText(screen.getByLabelText("Vergi Dairesi"), "Kadıköy");
+  fireEvent.changeText(screen.getByLabelText("İş Yeri Adresi"), "Bahariye Cad. No:1");
+  fireEvent.changeText(screen.getByLabelText("Vergi Kimlik No (10 hane)"), "1234567890");
+
+  fireEvent.press(screen.getByText("Kaydet"));
+
+  await waitFor(() => expect(mockedRouter.replace).toHaveBeenCalledWith("/"));
+});
+
+test("a successful save OUTSIDE onboarding does not navigate away — editing the profile later stays on this screen", async () => {
+  mockSearchParams = {}; // arriving from Profil, not right after registration
+  mocked.getCompany.mockResolvedValue(existingCompany);
+  mocked.saveCompany.mockResolvedValue(existingCompany);
+  renderScreen();
+
+  await waitFor(() => expect(screen.getByDisplayValue("Ayşe Yıldırım")).toBeOnTheScreen());
+  fireEvent.press(screen.getByText("Kaydet"));
+
+  await waitFor(() => expect(screen.getByText("Firma bilgileri kaydedildi")).toBeOnTheScreen());
+  expect(mockedRouter.replace).not.toHaveBeenCalled();
 });
 
 test("wraps the form in a KeyboardAvoidingView with the platform-correct behavior, like AuthShell", async () => {

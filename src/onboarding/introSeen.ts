@@ -7,6 +7,11 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
  * carrying the old flag — including whoever is testing this change — must
  * see the new tour once, not have it silently skipped because a
  * differently-scoped flag happens to share a truthy value.
+ *
+ * The old `fislik.intro_seen` value is left orphaned in AsyncStorage on
+ * every device that had it — deliberately abandoned, not migrated. Nothing
+ * reads that key anymore, and nothing ever will again; there's no bug to
+ * find here if you go looking for where it gets cleaned up.
  */
 const KEY = "fislik.post_login_intro_seen";
 

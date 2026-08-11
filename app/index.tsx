@@ -31,6 +31,21 @@ import { Spinner } from "@/src/theme/components/Spinner";
  * specific to this route's stakes as the sole gate into the app, not a
  * property every caller of the flag should inherit.
  *
+ * A rejection isn't the only way this read can fail to deliver, though: it
+ * can also simply never settle — no resolve, no reject, ever (a hung
+ * AsyncStorage backend, say). `.catch` alone does nothing for that case,
+ * and `introSeen` would then stay `undefined` forever with `Spinner`
+ * mounted above every other branch, which is just as fatal as never
+ * reaching the app at all. This is the same shape of bug `app/_layout.tsx`
+ * already had to close twice — once for a rejected `useFonts` call
+ * (`fontError`) and once for one that never settles at all
+ * (`bootTimedOut`) — so it gets the same fix here: `INTRO_READ_TIMEOUT_MS`
+ * bounds how long this route will wait before treating the flag as "seen"
+ * regardless of whether the read ever finishes. The functional `setState`
+ * updater below only applies that fallback if the real read hasn't already
+ * settled by the deadline, so a read that's merely slow (not hung) is never
+ * clobbered by the timer racing it.
+ *
  * The write-side half of this same fail-open reasoning lives in
  * `src/onboarding/introSeen.ts` (an in-memory guard set before the
  * persisted write is attempted) and `app/tanitim.tsx`'s `finish()` (which
@@ -43,6 +58,8 @@ import { Spinner } from "@/src/theme/components/Spinner";
  * time, which CI's `expo export` step depends on. Keep at least one when
  * touching this file.
  */
+export const INTRO_READ_TIMEOUT_MS = 2500;
+
 export default function Index() {
   const { status, user } = useAuth();
   const [introSeen, setIntroSeen] = useState<boolean | undefined>(undefined);
@@ -50,6 +67,11 @@ export default function Index() {
   useEffect(() => {
     if (status !== "authed" || !user) return;
     hasSeenIntro().then(setIntroSeen, () => setIntroSeen(true));
+
+    const timer = setTimeout(() => {
+      setIntroSeen((current) => (current === undefined ? true : current));
+    }, INTRO_READ_TIMEOUT_MS);
+    return () => clearTimeout(timer);
   }, [status, user]);
 
   if (status === "loading") return <Spinner />;
