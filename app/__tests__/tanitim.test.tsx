@@ -52,13 +52,13 @@ test("a client sees the client slides, not the accountant's", () => {
   mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
   render(<TanitimScreen />);
   expect(screen.getByText("Fişinizi çekin")).toBeOnTheScreen();
-  expect(screen.queryByText("Mükellef davet edin")).toBeNull();
+  expect(screen.queryByText("Mükellefinizi davet edin")).toBeNull();
 });
 
 test("an accountant sees the accountant slides, not the client's", () => {
   mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u2", role: "accountant" } });
   render(<TanitimScreen />);
-  expect(screen.getByText("Mükellef davet edin")).toBeOnTheScreen();
+  expect(screen.getByText("Mükellefinizi davet edin")).toBeOnTheScreen();
   expect(screen.queryByText("Fişinizi çekin")).toBeNull();
 });
 

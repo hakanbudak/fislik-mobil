@@ -90,20 +90,20 @@ const ACCOUNTANT_SLIDES: Slide[] = [
   {
     key: "davet",
     Icon: UserPlus,
-    title: "Mükellef davet edin",
-    body: "E-posta adresiyle davet gönderir, kabul ettiğinde fişlerine erişirsiniz.",
+    title: "Mükellefinizi davet edin",
+    body: "E-postayla davet edersiniz; kabul ettiğinde fişlerine erişirsiniz.",
   },
   {
     key: "isaretle",
     Icon: CheckSquare,
-    title: "Fişleri işlenmiş işaretleyin",
-    body: "İncelediğiniz fişleri tek tek veya toplu olarak işlenmiş olarak işaretlersiniz.",
+    title: "Fişleri işaretleyin",
+    body: "İncelediklerinizi tek tek ya da hepsini birden işlenmiş olarak işaretlersiniz.",
   },
   {
     key: "kapat",
     Icon: Lock,
     title: "Ayı kapatın",
-    body: "Mükellefin ayını kapatır, dilediğiniz an yeniden açarsınız.",
+    body: "Kapattığınız ayda mükellef fişleri değiştiremez; dilediğiniz an yeniden açarsınız.",
   },
   {
     key: "aktar",
