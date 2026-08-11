@@ -13,6 +13,7 @@ import {
   type NativeScrollEvent,
 } from "react-native";
 import Svg, { Line, Path } from "react-native-svg";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/src/auth/AuthProvider";
 import { LockedScreen } from "@/src/auth/LockedScreen";
 import { markIntroSeen } from "@/src/onboarding/introSeen";
@@ -22,7 +23,7 @@ import { Spinner } from "@/src/theme/components/Spinner";
 import { font, text } from "@/src/theme/typography";
 import { tokens } from "@/src/theme/tokens";
 
-const { width: windowWidth } = Dimensions.get("window");
+const { width: windowWidth, height: windowHeight } = Dimensions.get("window");
 
 // Card pager geometry — see the design handoff ("Screen 2: Intro tour").
 // Cards are 300pt wide with a 16pt gap, so the FlatList snaps every 316pt;
@@ -43,6 +44,29 @@ const DOT_ACTIVE_WIDTH = 22;
 // (44 - DOT_SIZE) / 2, rounded up — same "grow a small hit target to the
 // 44pt minimum via hitSlop" pattern as MonthPicker's chevrons.
 const DOT_HIT_SLOP = 19;
+
+// The handoff's 396 is a target, not a floor: on a short viewport it would
+// overflow (measured against an iPhone SE, see the report). The card body
+// shrinks to whatever's left after the rest of the chrome (header, dots,
+// footer, the two zigzag strips, and the inset-aware top/bottom clearance)
+// is subtracted from the viewport, capped at 396 so it never grows past
+// the design value on a tall screen.
+const CARD_BODY_TARGET_HEIGHT = 396;
+const HEADER_PADDING_TOP = 14;
+const HEADER_CONTENT_HEIGHT = 23;
+const HEADER_PADDING_BOTTOM = 4;
+const DOTS_ROW_HEIGHT = 16 + DOT_SIZE + 16;
+const FOOTER_HEIGHT = tokens.space(5) * 2 + 48;
+// Fixed chrome around the card, excluding the safe-area insets (those are
+// added separately, since they vary per device/orientation, not per
+// render). Header + dots + footer + both zigzag strips.
+const CARD_CHROME_HEIGHT =
+  HEADER_PADDING_TOP +
+  HEADER_CONTENT_HEIGHT +
+  HEADER_PADDING_BOTTOM +
+  DOTS_ROW_HEIGHT +
+  FOOTER_HEIGHT +
+  ZIGZAG_HEIGHT * 2;
 
 interface Slide {
   key: string;
@@ -246,17 +270,19 @@ function ReceiptCard({
   slideIndex,
   total,
   marginRight,
+  bodyHeight,
 }: {
   slide: Slide;
   slideIndex: number;
   total: number;
   marginRight: number;
+  bodyHeight: number;
 }) {
   const { Icon, title, body } = slide;
   return (
     <View style={[styles.card, { marginRight }]}>
       <ZigzagEdge direction="up" />
-      <View style={styles.cardBody}>
+      <View style={[styles.cardBody, { minHeight: bodyHeight }]}>
         <Text style={styles.brand}>FİŞLİK</Text>
         <DashedDivider />
         <View style={styles.iconWrap}>
@@ -338,9 +364,22 @@ export default function TanitimScreen() {
   const listRef = useRef<FlatList<Slide>>(null);
   const dotAnimsRef = useRef<Map<number, Animated.Value>>(new Map());
   const mountedRef = useRef(false);
+  // This screen sits at the app root, outside the `(auth)`/`(client)`/
+  // `(accountant)` groups whose own layouts each apply `insets.top`/
+  // `insets.bottom` to their outer View — so it has no ancestor to inherit
+  // safe-area clearance from and must read+apply the insets itself.
+  const insets = useSafeAreaInsets();
 
   const slides = user ? slidesForRole(user.role) : CLIENT_SLIDES;
   const isLast = index === slides.length - 1;
+
+  // See CARD_BODY_TARGET_HEIGHT's comment: shrink the card to whatever
+  // vertical room is actually left once the (inset-aware) chrome is
+  // subtracted, rather than overflowing a short screen.
+  const cardBodyHeight = Math.max(
+    0,
+    Math.min(CARD_BODY_TARGET_HEIGHT, windowHeight - insets.top - insets.bottom - CARD_CHROME_HEIGHT),
+  );
 
   function dotAnim(i: number): Animated.Value {
     let value = dotAnimsRef.current.get(i);
@@ -396,7 +435,7 @@ export default function TanitimScreen() {
 
   return (
     <View style={styles.page}>
-      <View style={styles.header}>
+      <View testID="tanitim-header" style={[styles.header, { paddingTop: insets.top + HEADER_PADDING_TOP }]}>
         <FislikMark width={16} height={23} />
         <Text style={styles.wordmark}>Fişlik</Text>
       </View>
@@ -419,6 +458,7 @@ export default function TanitimScreen() {
               slideIndex={i}
               total={slides.length}
               marginRight={i === slides.length - 1 ? 0 : CARD_GAP}
+              bodyHeight={cardBodyHeight}
             />
           )}
         />
@@ -430,7 +470,7 @@ export default function TanitimScreen() {
         ))}
       </View>
 
-      <View style={styles.footer}>
+      <View testID="tanitim-footer" style={[styles.footer, { paddingBottom: tokens.space(5) + insets.bottom }]}>
         <Text style={[text.label, styles.skip]} onPress={finish}>
           Geç
         </Text>
@@ -468,7 +508,6 @@ const styles = StyleSheet.create({
     backgroundColor: tokens.color.paper,
     alignItems: "center",
     gap: 13,
-    minHeight: 396,
     paddingTop: 24,
     paddingHorizontal: 26,
     paddingBottom: 18,

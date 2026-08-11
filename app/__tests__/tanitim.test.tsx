@@ -1,11 +1,28 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Redirect } from "expo-router";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import TanitimScreen from "../tanitim";
 
 // Card pager snap interval (300pt card + 16pt gap) — see app/tanitim.tsx.
 // The pager's index tracking must divide by this, not by window width, so
 // tests that simulate a scroll drive the offset off this constant.
 const SNAP_INTERVAL = 316;
+
+// This screen has no ancestor layout to inherit safe-area clearance from
+// (see app/tanitim.tsx), so it reads useSafeAreaInsets() itself — which
+// throws outside a SafeAreaProvider. Same metrics AppHeader.test.tsx uses.
+const SAFE_AREA_METRICS = {
+  frame: { x: 0, y: 0, width: 390, height: 844 },
+  insets: { top: 59, left: 0, right: 0, bottom: 34 },
+};
+
+function renderTour() {
+  return render(
+    <SafeAreaProvider initialMetrics={SAFE_AREA_METRICS}>
+      <TanitimScreen />
+    </SafeAreaProvider>,
+  );
+}
 
 const mockReplace = jest.fn();
 jest.mock("expo-router", () => ({
@@ -31,42 +48,42 @@ beforeEach(() => {
 
 test("an anon visitor is sent to /giris, never seeing either role's slides", () => {
   mockUseAuth.mockReturnValue({ status: "anon", user: null });
-  render(<TanitimScreen />);
+  renderTour();
   expect(mockedRedirect).toHaveBeenCalledWith({ href: "/giris" }, undefined);
   expect(screen.queryByTestId("tanitim-slides")).toBeNull();
 });
 
 test("shows a spinner instead of the tour while the session is still restoring", () => {
   mockUseAuth.mockReturnValue({ status: "loading", user: null });
-  render(<TanitimScreen />);
+  renderTour();
   expect(mockedRedirect).not.toHaveBeenCalled();
   expect(screen.queryByTestId("tanitim-slides")).toBeNull();
 });
 
 test("shows the locked screen instead of the tour when biometric unlock is pending", () => {
   mockUseAuth.mockReturnValue({ status: "locked", user: { id: "u1", role: "client" } });
-  render(<TanitimScreen />);
+  renderTour();
   expect(mockedRedirect).not.toHaveBeenCalled();
   expect(screen.queryByTestId("tanitim-slides")).toBeNull();
 });
 
 test("a client sees the client slides, not the accountant's", () => {
   mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
-  render(<TanitimScreen />);
+  renderTour();
   expect(screen.getByText("Fişinizi çekin")).toBeOnTheScreen();
   expect(screen.queryByText("Mükellefinizi davet edin")).toBeNull();
 });
 
 test("an accountant sees the accountant slides, not the client's", () => {
   mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u2", role: "accountant" } });
-  render(<TanitimScreen />);
+  renderTour();
   expect(screen.getByText("Mükellefinizi davet edin")).toBeOnTheScreen();
   expect(screen.queryByText("Fişinizi çekin")).toBeNull();
 });
 
 test("pressing Geç marks the intro seen and exits through the entry route, not a hardcoded login screen", async () => {
   mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
-  render(<TanitimScreen />);
+  renderTour();
   fireEvent.press(screen.getByText("Geç"));
   expect(mockMarkIntroSeen).toHaveBeenCalled();
   // `waitFor` polls rather than assuming a fixed number of microtask turns
@@ -86,14 +103,14 @@ test("pressing Geç marks the intro seen and exits through the entry route, not 
 test("a failed flag write does not trap the user on this screen — finish() still navigates onward", async () => {
   mockMarkIntroSeen.mockRejectedValue(new Error("storage unavailable"));
   mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
-  render(<TanitimScreen />);
+  renderTour();
   fireEvent.press(screen.getByText("Geç"));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/"));
 });
 
 test("the last slide shows Başla instead of İleri, and still shows Geç, for either role", () => {
   mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u2", role: "accountant" } });
-  render(<TanitimScreen />);
+  renderTour();
   const list = screen.getByTestId("tanitim-slides");
   // Land on the fourth (last) slide by simulating the paging scroll a real
   // swipe would produce, rather than asserting against the component's own
@@ -115,7 +132,7 @@ test("the visible slide is derived from the 316pt snap interval, not from window
   // width would round 632 / 750 ≈ 0.84 down to slide 1, not 2 — this test
   // pins the correct divisor.
   mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
-  render(<TanitimScreen />);
+  renderTour();
   const list = screen.getByTestId("tanitim-slides");
   fireEvent(list, "momentumScrollEnd", {
     nativeEvent: { contentOffset: { x: 2 * SNAP_INTERVAL } },
@@ -127,7 +144,7 @@ test("the visible slide is derived from the 316pt snap interval, not from window
 
 test("tapping a dot jumps straight to that slide", () => {
   mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
-  render(<TanitimScreen />);
+  renderTour();
 
   fireEvent.press(screen.getByTestId("tanitim-dot-3"));
 
@@ -135,4 +152,25 @@ test("tapping a dot jumps straight to that slide", () => {
   expect(screen.getByText("Başla")).toBeOnTheScreen();
   expect(screen.queryByText("İleri")).not.toBeOnTheScreen();
   expect(screen.getByText("Geç")).toBeOnTheScreen();
+});
+
+test("the header and footer fold in a real top/bottom safe-area inset instead of sitting under the status bar or home indicator", () => {
+  // This screen has no ancestor layout applying insets.top/insets.bottom
+  // for it (unlike the (auth)/(client)/(accountant) group layouts) — it
+  // must read useSafeAreaInsets() itself. SAFE_AREA_METRICS above uses a
+  // realistic notched-device inset (top 59, bottom 34); a component that
+  // silently dropped the insets would render the header's own fixed 14pt
+  // and the footer's own fixed 20pt regardless of this value.
+  mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
+  renderTour();
+
+  const header = screen.getByTestId("tanitim-header");
+  const footer = screen.getByTestId("tanitim-footer");
+  const headerStyle = Array.isArray(header.props.style) ? header.props.style[1] : header.props.style;
+  const footerStyle = Array.isArray(footer.props.style) ? footer.props.style[1] : footer.props.style;
+
+  // 59 (inset.top) + 14 (the header's own design padding).
+  expect(headerStyle.paddingTop).toBe(73);
+  // 34 (inset.bottom) + 20 (the footer's own design padding, tokens.space(5)).
+  expect(footerStyle.paddingBottom).toBe(54);
 });

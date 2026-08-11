@@ -1,7 +1,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Redirect } from "expo-router";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import TanitimScreen from "../tanitim";
 import Index from "../index";
+
+// TanitimScreen has no ancestor layout to inherit safe-area insets from and
+// reads useSafeAreaInsets() itself (see app/tanitim.tsx) — that throws
+// outside a SafeAreaProvider.
+const SAFE_AREA_METRICS = {
+  frame: { x: 0, y: 0, width: 390, height: 844 },
+  insets: { top: 59, left: 0, right: 0, bottom: 34 },
+};
 
 /**
  * C1 regression pin (Task 6 review): the help page lets an authed user
@@ -48,7 +57,11 @@ beforeEach(() => {
 test("a signed-in client finishing a replayed tour lands back in their own shell, not the login screen", async () => {
   mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
 
-  render(<TanitimScreen />);
+  render(
+    <SafeAreaProvider initialMetrics={SAFE_AREA_METRICS}>
+      <TanitimScreen />
+    </SafeAreaProvider>,
+  );
   fireEvent.press(screen.getByText("Geç"));
   await waitFor(() => expect(lastReplacedHref).toBe("/"));
 
@@ -64,7 +77,11 @@ test("a signed-in client finishing a replayed tour lands back in their own shell
 test("a signed-in accountant finishing a replayed tour lands in the accountant shell", async () => {
   mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u2", role: "accountant" } });
 
-  render(<TanitimScreen />);
+  render(
+    <SafeAreaProvider initialMetrics={SAFE_AREA_METRICS}>
+      <TanitimScreen />
+    </SafeAreaProvider>,
+  );
   fireEvent.press(screen.getByText("Geç"));
   await waitFor(() => expect(lastReplacedHref).toBe("/"));
 
