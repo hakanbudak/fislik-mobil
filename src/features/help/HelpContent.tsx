@@ -91,13 +91,15 @@ export function HelpContent({
           <Text style={[text.body, styles.stepBody]}>{step.body}</Text>
         </Card>
       ))}
-      <Card style={styles.card}>
-        <Text style={[text.label, styles.stepTitle]}>Tanıtımı yeniden izleyin</Text>
-        <Text style={[text.body, styles.stepBody]}>
-          Uygulamayı tanıtan kısa turu yeniden görmek isterseniz aşağıdaki düğmeye dokunun.
-        </Text>
-        <Button title="Tanıtım turunu tekrar izle" variant="secondary" onPress={onReplayIntro} />
-      </Card>
+      {role === "client" ? (
+        <Card style={styles.card}>
+          <Text style={[text.label, styles.stepTitle]}>Tanıtımı yeniden izleyin</Text>
+          <Text style={[text.body, styles.stepBody]}>
+            Uygulamayı tanıtan kısa turu yeniden görmek isterseniz aşağıdaki düğmeye dokunun.
+          </Text>
+          <Button title="Tanıtım turunu tekrar izle" variant="secondary" onPress={onReplayIntro} />
+        </Card>
+      ) : null}
     </ScrollView>
   );
 }

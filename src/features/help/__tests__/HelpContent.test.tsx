@@ -13,9 +13,14 @@ test("an accountant sees the filing workflow, not the taxpayer's send step", () 
   expect(screen.queryByText(/muhasebecinize gönder/i)).toBeNull();
 });
 
-test("both roles can replay the introduction from the same action", () => {
+test("a client can replay the introduction, which is written for taxpayers", () => {
   const onReplayIntro = jest.fn();
   render(<HelpContent role="client" onReplayIntro={onReplayIntro} />);
   fireEvent.press(screen.getByText(/tanıtım turunu tekrar izle/i));
   expect(onReplayIntro).toHaveBeenCalledTimes(1);
+});
+
+test("an accountant is not offered the replay action, because the tour is taxpayer-framed", () => {
+  render(<HelpContent role="accountant" onReplayIntro={jest.fn()} />);
+  expect(screen.queryByText(/tanıtım turunu tekrar izle/i)).toBeNull();
 });
