@@ -54,7 +54,7 @@ const SLIDES: Slide[] = [
     key: "takip",
     Icon: Radar,
     title: "Durumunu takip edin",
-    body: "Fişleriniz okundu mu, işlendi mi — hepsi listede görünür.",
+    body: "Fişleriniz işlendi mi, sorunlu mu — hepsi listede görünür.",
   },
   {
     key: "cevrimdisi",
