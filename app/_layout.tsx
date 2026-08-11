@@ -7,7 +7,10 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import { Slot, SplashScreen, type ErrorBoundaryProps } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "@/src/auth/AuthProvider";
 import { CrashScreen } from "@/src/theme/components/CrashScreen";
 import { invalidateAfterUpload } from "@/src/upload/invalidateAfterUpload";
@@ -64,10 +67,18 @@ export default function RootLayout() {
 
   if (!loaded) return null;
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <Slot />
-      </AuthProvider>
-    </QueryClientProvider>
+    // GestureHandlerRootView must be the outermost view or react-native-gesture-handler
+    // receives no events on Android — the receipt viewer's pinch-to-zoom depends on it.
+    // SafeAreaProvider sits inside it so every screen can reach the device insets.
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <StatusBar style="dark" />
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <Slot />
+          </AuthProvider>
+        </QueryClientProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
