@@ -35,7 +35,7 @@ const SLIDES: Slide[] = [
     key: "cek",
     Icon: Camera,
     title: "Fişini çek",
-    body: "Fişlerini art arda fotoğraflayarak biriktir.",
+    body: "Fişlerini art arda fotoğraflayarak biriktirirsin.",
   },
   {
     key: "gonder",
@@ -47,7 +47,7 @@ const SLIDES: Slide[] = [
     key: "takip",
     Icon: Radar,
     title: "Durumunu takip et",
-    body: "Her fişin okundu mu, işlendi mi göresin.",
+    body: "Fişin okundu mu, işlendi mi — hepsi listede görünür.",
   },
   {
     key: "cevrimdisi",
