@@ -97,13 +97,13 @@ const ACCOUNTANT_SLIDES: Slide[] = [
     key: "isaretle",
     Icon: CheckSquare,
     title: "Fişleri işaretleyin",
-    body: "İncelediklerinizi tek tek ya da hepsini birden işlenmiş olarak işaretlersiniz.",
+    body: "Tek tek ya da hepsini birden işlenmiş olarak işaretlersiniz.",
   },
   {
     key: "kapat",
     Icon: Lock,
     title: "Ayı kapatın",
-    body: "Kapattığınız ayda mükellef fişleri değiştiremez; dilediğiniz an yeniden açarsınız.",
+    body: "Kapalı ayda mükellef değişiklik yapamaz; dilediğiniz an yeniden açarsınız.",
   },
   {
     key: "aktar",
