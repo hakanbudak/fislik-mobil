@@ -75,20 +75,34 @@ import type { QueueRecord } from "@/src/upload/queue";
  * (Task 26) the ZIP export — grouped together as peers, with nothing
  * consequential nearby.
  *
- * Task 26's "ZIP indir · tüm ay" reuses the web's own button copy for this
- * exact action (`fislik-web/src/components/ExportModal.tsx`), rather than
- * the brief's own "Arşivi indir" — the web is the copy source of record.
- * Unlike the web, which wraps the whole multi-format "Excel'e Aktar" export
- * dialog, this screen only ever exports the ZIP (see the Task 22 brief for
- * why the export modal itself wasn't ported), so there is no format picker
- * here — the button IS the zip export.
+ * Task 26's ZIP button originally reused the web's own copy verbatim,
+ * "ZIP indir · tüm ay" (`fislik-web/src/components/ExportModal.tsx`),
+ * rather than the brief's own "Arşivi indir" — the web is the copy source
+ * of record. Unlike the web, which wraps the whole multi-format "Excel'e
+ * Aktar" export dialog, this screen only ever exports the ZIP (see the
+ * Task 22 brief for why the export modal itself wasn't ported), so there
+ * is no format picker here — the button IS the zip export.
  *
- * Mobile-fit follow-up: the floating bar used to also carry the credit
- * explanation and the credit badge/warning — up to ~250pt of overlay that
- * hid the receipt list underneath it on a phone. That copy isn't an
- * action, so it now lives in the normal scrolling content, directly after
- * the receipt list and before the bar; the bar itself holds only its three
- * buttons (bulk-mark full width, then upload/ZIP as an equal-width pair).
+ * Mobile-fit follow-up deliberately DIVERGES from that verbatim copy: the
+ * label is now "ZIP indir" (the "· tüm ay" qualifier dropped), by explicit
+ * product decision, not a truncation-for-space shortcut. On the web,
+ * "ZIP indir · tüm ay" sits inside `ExportModal` beside Excel/CSV/JSON/PDF
+ * options, and "· tüm ay" exists specifically to tell the user that,
+ * unlike those other formats, the ZIP ignores whatever field/scope filters
+ * they've set and always exports the whole month. That contrast has
+ * nothing to export against here: this screen has no export modal and no
+ * other export format (see above — the button IS the zip export), so the
+ * qualifier would be contrasting itself against options that don't exist
+ * on mobile. Do not "restore" the web's full string here; the divergence
+ * is intentional and this is why.
+ *
+ * The same follow-up moved the credit explanation and credit badge/warning
+ * out of the floating bar (which used to carry them alongside its buttons,
+ * ~250pt of overlay hiding the receipt list underneath it on a phone) into
+ * the receipt `FlatList`'s own `ListFooterComponent` — see `creditInfo`
+ * below for why a plain post-list sibling isn't enough. The bar itself now
+ * holds only its buttons (bulk-mark full width, then upload/ZIP as an
+ * equal-width pair).
  */
 export default function ClientMonthScreen() {
   const {
@@ -241,6 +255,35 @@ export default function ClientMonthScreen() {
     ...receipts.map((receipt) => ({ key: `r-${receipt.id}`, kind: "receipt" as const, receipt })),
   ];
 
+  // Information about the upload action's cost, not an action itself — see
+  // the module docstring's mobile-fit note. Built once here so it can be
+  // reused in two spots: as the receipt `FlatList`'s `ListFooterComponent`
+  // when there are rows to scroll (the only way for it to actually scroll
+  // into view with the receipts — a plain sibling *after* the unstyled,
+  // unwrapped `FlatList` below renders outside the list's own scrollable
+  // content and would never be reachable once the list is tall enough to
+  // fill the viewport), and as a plain sibling when there's no list at all
+  // (`rows.length === 0`, where nothing needs scrolling to reach it).
+  const creditInfo = (
+    <View style={styles.creditInfo} testID="credit-info">
+      <Text style={[text.caption, styles.creditNote]}>
+        Muhasebeci olarak yüklediğiniz fişler bu mükellefin ayına eklenir ve analiz kredisi sizin
+        hesabınızdan düşülür.
+      </Text>
+      {credits && !credits.unlimited ? (
+        <View style={styles.creditRow}>
+          <Badge label={`Bu ay ${credits.used}/${credits.limit ?? 0} analiz`} tone="neutral" />
+        </View>
+      ) : null}
+      {credits && !credits.unlimited && credits.remaining === 0 ? (
+        <Text style={[text.caption, styles.creditWarning]}>
+          Aylık analiz limitiniz doldu — yüklediğiniz fişler sıraya alınır, kredi yenilenince analiz
+          edilir.
+        </Text>
+      ) : null}
+    </View>
+  );
+
   function openCamera() {
     // `clientTitle`, not `fullNameParam` — the camera's on-behalf banner
     // must show the real name even when this screen only knows it via the
@@ -371,6 +414,11 @@ export default function ClientMonthScreen() {
             keyExtractor={(row) => row.key}
             numColumns={2}
             contentContainerStyle={styles.list}
+            testID="receipts-list"
+            // See `creditInfo`'s own comment: this is what makes the credit
+            // note/badge actually scroll into view instead of floating
+            // unreachably below a full-viewport list.
+            ListFooterComponent={creditInfo}
             renderItem={({ item }) =>
               item.kind === "queued" ? (
                 <QueuedReceiptCard
@@ -393,35 +441,9 @@ export default function ClientMonthScreen() {
             }
           />
         </>
-      ) : null}
-
-      {/*
-        Information about the upload action's cost, not an action itself —
-        moved out of `actionBar` (Task: mobile-fit) into the page's normal
-        scrolling content, directly after the receipt list and before the
-        bar, so it reads as the upload button's consequence without
-        floating on top of the receipts. Rendered unconditionally on
-        `rows.length` (matching the old bar's own unconditional credit
-        note) since "Fiş Yükle" is available whether or not this month has
-        receipts yet.
-      */}
-      <View style={styles.creditInfo}>
-        <Text style={[text.caption, styles.creditNote]}>
-          Muhasebeci olarak yüklediğiniz fişler bu mükellefin ayına eklenir ve analiz kredisi sizin
-          hesabınızdan düşülür.
-        </Text>
-        {credits && !credits.unlimited ? (
-          <View style={styles.creditRow}>
-            <Badge label={`Bu ay ${credits.used}/${credits.limit ?? 0} analiz`} tone="neutral" />
-          </View>
-        ) : null}
-        {credits && !credits.unlimited && credits.remaining === 0 ? (
-          <Text style={[text.caption, styles.creditWarning]}>
-            Aylık analiz limitiniz doldu — yüklediğiniz fişler sıraya alınır, kredi yenilenince analiz
-            edilir.
-          </Text>
-        ) : null}
-      </View>
+      ) : (
+        creditInfo
+      )}
 
       {/*
         Actions only (Task: mobile-fit) — the credit note/badge used to live
@@ -446,7 +468,7 @@ export default function ClientMonthScreen() {
           </View>
           <View style={styles.actionRowButton}>
             <Button
-              title="ZIP indir · tüm ay"
+              title="ZIP indir"
               variant="secondary"
               onPress={() => zipMutation.mutate()}
               loading={zipMutation.isPending}
@@ -593,9 +615,14 @@ const styles = StyleSheet.create({
   companyFieldLabel: { color: tokens.color.inkSoft },
   companyFieldValue: { color: tokens.color.ink },
   hint: { color: tokens.color.inkSoft, paddingHorizontal: tokens.space(3), paddingTop: tokens.space(2) },
-  // Bottom padding sized to clear the now two-row (was up to five-element)
-  // floating bar — see `actionBar` below for why it no longer needs ~250pt.
-  list: { padding: tokens.space(2), paddingBottom: tokens.space(20) },
+  // Bottom padding derived from the bar's own real maximum height, not
+  // estimated: `actionBar`'s `bottom` offset (`tokens.space(3)` = 12) +
+  // its tallest content — both rows present, bulk-mark button (`Button`'s
+  // fixed `height: 48`) + `actionRow`'s `gap: tokens.space(2)` (8) +
+  // the upload/ZIP row (48) = 104 — plus one more `tokens.space(3)` (12)
+  // of breathing room above the bar so the last card isn't flush against
+  // it. 12 + 104 + 12 = 128 = `tokens.space(32)`.
+  list: { padding: tokens.space(2), paddingBottom: tokens.space(32) },
   creditInfo: {
     paddingHorizontal: tokens.space(3),
     paddingTop: tokens.space(2),

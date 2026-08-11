@@ -1,5 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
+import { StyleSheet } from "react-native";
 import ClientMonthScreen from "../mukellef/[clientId]";
 import { ApiError } from "@/src/api/client";
 import * as endpoints from "@/src/api/endpoints";
@@ -422,7 +423,7 @@ describe("mobile-fit: the floating action bar holds only its three buttons", () 
     expect(bar.queryByText("Tümünü işlendi yap")).toBeNull();
     expect(bar.queryByText("Tümünün işaretini kaldır")).toBeNull();
     expect(bar.getByText("Fiş Yükle")).toBeOnTheScreen();
-    expect(bar.getByText("ZIP indir · tüm ay")).toBeOnTheScreen();
+    expect(bar.getByText("ZIP indir")).toBeOnTheScreen();
   });
 
   test("renders all three buttons — bulk-mark, upload and ZIP export — when there are receipts", async () => {
@@ -433,7 +434,36 @@ describe("mobile-fit: the floating action bar holds only its three buttons", () 
     const bar = within(screen.getByTestId("action-bar"));
     expect(bar.getByText("Tümünü işlendi yap")).toBeOnTheScreen();
     expect(bar.getByText("Fiş Yükle")).toBeOnTheScreen();
-    expect(bar.getByText("ZIP indir · tüm ay")).toBeOnTheScreen();
+    expect(bar.getByText("ZIP indir")).toBeOnTheScreen();
+  });
+
+  test("the credit note is the receipt list's own footer, so it scrolls into view with the receipts instead of floating unreachably below them", async () => {
+    mocked.clientReceipts.mockResolvedValue([receipt({ processed: false })]);
+    renderScreen();
+    await waitFor(() => expect(screen.getByTestId("receipts-list")).toBeOnTheScreen());
+
+    // Scoping the query to the list itself (not the whole screen) is the
+    // point: it only passes if `credit-info` is actually a descendant of
+    // the FlatList (i.e. its ListFooterComponent), not a sibling rendered
+    // after it — which is exactly the arrangement that made the note
+    // unreachable on a month with enough receipts to fill the viewport.
+    const list = within(screen.getByTestId("receipts-list"));
+    expect(list.getByTestId("credit-info")).toBeOnTheScreen();
+  });
+
+  test("the list's bottom padding clears the bar's real maximum height (both rows present)", async () => {
+    mocked.clientReceipts.mockResolvedValue([receipt({ processed: false })]);
+    renderScreen();
+    await waitFor(() => expect(screen.getByTestId("receipts-list")).toBeOnTheScreen());
+
+    // 128 = bar's `bottom` offset (12) + its tallest content, both rows
+    // present (48 + 8 gap + 48 = 104) + one more 12 of breathing room —
+    // see the `list` style's own comment in `[clientId].tsx` for the
+    // derivation. Pinned as a number, not re-derived here, so a change to
+    // either side of that arithmetic without updating the other is caught.
+    const list = screen.getByTestId("receipts-list");
+    const style = StyleSheet.flatten(list.props.contentContainerStyle);
+    expect(style.paddingBottom).toBe(128);
   });
 });
 
@@ -442,9 +472,9 @@ describe("exporting the month as a ZIP (Task 26)", () => {
     mocked.clientReceipts.mockResolvedValue([]);
     mockedDownloadMonthZip.mockResolvedValue(undefined);
     renderScreen();
-    await waitFor(() => expect(screen.getByText("ZIP indir · tüm ay")).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByText("ZIP indir")).toBeOnTheScreen());
 
-    fireEvent.press(screen.getByText("ZIP indir · tüm ay"));
+    fireEvent.press(screen.getByText("ZIP indir"));
 
     await waitFor(() => expect(mockedDownloadMonthZip).toHaveBeenCalledWith("c1", "2026-08"));
   });
@@ -453,9 +483,9 @@ describe("exporting the month as a ZIP (Task 26)", () => {
     mocked.clientReceipts.mockResolvedValue([]);
     mockedDownloadMonthZip.mockRejectedValue(new ApiError(404, "No receipts for this period"));
     renderScreen();
-    await waitFor(() => expect(screen.getByText("ZIP indir · tüm ay")).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByText("ZIP indir")).toBeOnTheScreen());
 
-    fireEvent.press(screen.getByText("ZIP indir · tüm ay"));
+    fireEvent.press(screen.getByText("ZIP indir"));
 
     await waitFor(() => expect(screen.getByText("Bu ay için indirilecek fiş yok")).toBeOnTheScreen());
     expect(screen.queryByText("Kayıt bulunamadı.")).toBeNull();
@@ -465,9 +495,9 @@ describe("exporting the month as a ZIP (Task 26)", () => {
     mocked.clientReceipts.mockResolvedValue([]);
     mockedDownloadMonthZip.mockRejectedValue(new SharingUnavailableError());
     renderScreen();
-    await waitFor(() => expect(screen.getByText("ZIP indir · tüm ay")).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByText("ZIP indir")).toBeOnTheScreen());
 
-    fireEvent.press(screen.getByText("ZIP indir · tüm ay"));
+    fireEvent.press(screen.getByText("ZIP indir"));
 
     await waitFor(() => expect(screen.getByText("Bu cihazda dosya paylaşımı kullanılamıyor")).toBeOnTheScreen());
   });
@@ -476,9 +506,9 @@ describe("exporting the month as a ZIP (Task 26)", () => {
     mocked.clientReceipts.mockResolvedValue([]);
     mockedDownloadMonthZip.mockRejectedValue(new ApiError(0, "Arşiv indirilemedi"));
     renderScreen();
-    await waitFor(() => expect(screen.getByText("ZIP indir · tüm ay")).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByText("ZIP indir")).toBeOnTheScreen());
 
-    fireEvent.press(screen.getByText("ZIP indir · tüm ay"));
+    fireEvent.press(screen.getByText("ZIP indir"));
 
     await waitFor(() => expect(screen.getByText("Bir şeyler ters gitti. Lütfen tekrar dene.")).toBeOnTheScreen());
   });
