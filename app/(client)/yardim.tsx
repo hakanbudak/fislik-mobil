@@ -1,6 +1,5 @@
-import { router } from "expo-router";
 import { HelpContent } from "@/src/features/help/HelpContent";
-import { resetIntro } from "@/src/onboarding/introSeen";
+import { replayIntro } from "@/src/features/help/replayIntro";
 
 /**
  * "Nasıl kullanılır" — reachable from Profil (`app/(client)/profil.tsx`) at
@@ -9,28 +8,9 @@ import { resetIntro } from "@/src/onboarding/introSeen";
  * the tab bar, the same defect the `kamera`/`firma-bilgileri`/`fis/[id]`
  * entries there already guard against.
  *
- * `resetIntro()` deliberately doesn't swallow AsyncStorage errors — see its
- * docstring — so this call site swallows them itself, rather than pushing
- * that handling into the shared helper: a failed `removeItem` must not
- * strand the user on this screen, and navigation must still happen even
- * when it throws. Worst case on failure is the four-slide tour reappearing
- * on a later cold start, which is harmless; failing to navigate at all
- * would not be.
+ * See `src/features/help/replayIntro.ts` for what the replay action
+ * actually does and does not accomplish.
  */
 export default function ClientYardimScreen() {
-  return (
-    <HelpContent
-      role="client"
-      onReplayIntro={async () => {
-        try {
-          await resetIntro();
-        } catch {
-          // See the docstring above — a failed reset must not block
-          // navigation to the tour.
-        } finally {
-          router.replace("/(auth)/tanitim");
-        }
-      }}
-    />
-  );
+  return <HelpContent role="client" onReplayIntro={replayIntro} />;
 }

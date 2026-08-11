@@ -14,15 +14,19 @@ beforeEach(() => jest.clearAllMocks());
 
 test("shows the first slide's title", () => {
   render(<TanitimScreen />);
-  expect(screen.getByText("Fişini çek")).toBeOnTheScreen();
+  expect(screen.getByText("Fişinizi çekin")).toBeOnTheScreen();
 });
 
-test("pressing Geç marks the intro seen and leaves for the login screen", async () => {
+test("pressing Geç marks the intro seen and exits through the entry route, not a hardcoded login screen", async () => {
   render(<TanitimScreen />);
   fireEvent.press(screen.getByText("Geç"));
   expect(mockMarkIntroSeen).toHaveBeenCalled();
   await Promise.resolve();
-  expect(mockReplace).toHaveBeenCalledWith("/giris");
+  // "/" — the app's own entry route (`app/index.tsx`), which dispatches an
+  // anon session to `/giris` and an authed one to its own shell. Asserting
+  // this instead of "/giris" is the C1 regression pin: a replay from the
+  // (authed-only) help page must not be hardcoded back to the login form.
+  expect(mockReplace).toHaveBeenCalledWith("/");
 });
 
 test("the last slide shows Başla instead of İleri, and still shows Geç", () => {

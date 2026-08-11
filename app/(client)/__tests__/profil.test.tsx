@@ -74,23 +74,26 @@ test("pressing the firma bilgileri card navigates there", async () => {
   expect(mockedRouter.push).toHaveBeenCalledWith("/(client)/firma-bilgileri");
 });
 
-test("links to the help page for both a client and an accountant", async () => {
+test("links to the help page for a client", async () => {
   renderScreen();
   await waitFor(() => expect(screen.getByText("Nasıl kullanılır")).toBeOnTheScreen());
+});
 
+test("links to the help page for an accountant too", async () => {
   mockedUseAuth.mockReturnValue({ user: { ...client, role: "accountant" }, status: "authed", signOut });
   renderScreen();
   await waitFor(() => expect(screen.getByText("Muhasebeci")).toBeOnTheScreen());
   expect(screen.getByText("Nasıl kullanılır")).toBeOnTheScreen();
 });
 
-test("pressing the help card routes to the right group per role", async () => {
+test("pressing the help card routes a client to the client group", async () => {
   renderScreen();
   await waitFor(() => expect(screen.getByText("Nasıl kullanılır")).toBeOnTheScreen());
   fireEvent.press(screen.getByText("Nasıl kullanılır"));
   expect(mockedRouter.push).toHaveBeenCalledWith("/(client)/yardim");
+});
 
-  mockedRouter.push.mockClear();
+test("pressing the help card routes an accountant to the accountant group", async () => {
   mockedUseAuth.mockReturnValue({ user: { ...client, role: "accountant" }, status: "authed", signOut });
   renderScreen();
   await waitFor(() => expect(screen.getByText("Muhasebeci")).toBeOnTheScreen());

@@ -29,25 +29,32 @@ interface Slide {
  * the "seen" flag it writes on the way out. Slide four is the one that
  * matters most: it's the only place a user learns captures survive a
  * dropped connection instead of assuming they were lost.
+ *
+ * Formal register ("fişinizi", "biriktirirsiniz"), matching the web's own
+ * established voice (`fislik-web/src/pages/*.tsx` is formal throughout,
+ * bar one inconsistent empty-state string) — this page has no web
+ * counterpart, but the mobile app's own Yardım page (Task 6) that now
+ * links straight into this tour is formal too, and the two should not
+ * clash on register in the same flow.
  */
 const SLIDES: Slide[] = [
   {
     key: "cek",
     Icon: Camera,
-    title: "Fişini çek",
-    body: "Fişlerini art arda fotoğraflayarak biriktirirsin.",
+    title: "Fişinizi çekin",
+    body: "Fişlerinizi art arda fotoğraflayarak biriktirirsiniz.",
   },
   {
     key: "gonder",
     Icon: Send,
-    title: "Muhasebecine gönder",
-    body: "Ay tamamlandığında hepsini tek seferde muhasebecine iletirsin.",
+    title: "Muhasebecinize gönderin",
+    body: "Ay tamamlandığında hepsini tek seferde muhasebecinize iletirsiniz.",
   },
   {
     key: "takip",
     Icon: Radar,
-    title: "Durumunu takip et",
-    body: "Fişin okundu mu, işlendi mi — hepsi listede görünür.",
+    title: "Durumunuzu takip edin",
+    body: "Fişiniz okundu mu, işlendi mi — hepsi listede görünür.",
   },
   {
     key: "cevrimdisi",
@@ -57,9 +64,21 @@ const SLIDES: Slide[] = [
   },
 ];
 
+/**
+ * `router.replace("/")` — the app's own entry route, not a hardcoded
+ * `/giris` — because this tour is no longer only a first-launch/anonymous
+ * flow: the help page (Task 6) lets an authed user replay it from Profil.
+ * `app/index.tsx` already does exactly the dispatch this exit needs (anon
+ * -> `/giris`, an authed client/accountant -> their own tab group, locked
+ * -> the lock screen), and since `markIntroSeen()` is awaited first, an
+ * anon session's landing there re-reads the flag as already "seen" and
+ * goes straight to `/giris` rather than bouncing back into this screen.
+ * Hardcoding `/giris` here previously stranded an authed replay on the
+ * login form with a valid session and no way back short of force-quitting.
+ */
 async function finish() {
   await markIntroSeen();
-  router.replace("/giris");
+  router.replace("/");
 }
 
 export default function TanitimScreen() {

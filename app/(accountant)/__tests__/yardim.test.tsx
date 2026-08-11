@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react-native";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { router } from "expo-router";
 import AccountantYardimScreen from "../yardim";
 import { resetIntro } from "@/src/onboarding/introSeen";
@@ -22,8 +22,13 @@ test("shows the accountant's own workflow", () => {
 test("replaying the intro resets the seen flag and navigates to the tour", async () => {
   render(<AccountantYardimScreen />);
   fireEvent.press(screen.getByText(/tanıtım turunu tekrar izle/i));
-  await Promise.resolve();
-  await Promise.resolve();
+  await waitFor(() => expect(mockedRouter.replace).toHaveBeenCalledWith("/(auth)/tanitim"));
   expect(mockedResetIntro).toHaveBeenCalledTimes(1);
-  expect(mockedRouter.replace).toHaveBeenCalledWith("/(auth)/tanitim");
+});
+
+test("still navigates to the tour even when resetting the flag fails", async () => {
+  mockedResetIntro.mockRejectedValue(new Error("storage unavailable"));
+  render(<AccountantYardimScreen />);
+  fireEvent.press(screen.getByText(/tanıtım turunu tekrar izle/i));
+  await waitFor(() => expect(mockedRouter.replace).toHaveBeenCalledWith("/(auth)/tanitim"));
 });

@@ -26,11 +26,11 @@ const CLIENT_STEPS: HelpStep[] = [
   },
   {
     title: "Ayı seçin",
-    body: "Üstteki ay seçiciden fişin ait olduğu ayı seçersiniz; çektiğiniz her fiş o seçili aya kaydedilir.",
+    body: "Üstteki ay seçiciden fişin ait olduğu ayı seçersiniz; çektiğiniz her fiş seçili aya kaydedilir. Muhasebeciniz bir ayı kapatmışsa bu geçerli değildir: o aya çektiğiniz fiş otomatik olarak bir sonraki açık aya kaydedilir ve o fişin ayını siz de değiştiremezsiniz.",
   },
   {
     title: "Ayı gönderin",
-    body: "O aya ait fişlerinizi hazırladığınızda düğmeye dokunarak fişlerinizi muhasebecinize gönderirsiniz. Bir ay gönderildikten sonra tekrar gönderilemez; gönderim tarihi listede görünür.",
+    body: "O aya ait fişlerinizi hazırladığınızda düğmeye dokunarak fişlerinizi muhasebecinize gönderirsiniz; gönderim tarihi, fiş listesinin üstünde bir onay rozeti olarak görünür. Gönderdikten sonra fiş eklerseniz veya silerseniz, ay yeniden gönderilebilir hale gelir.",
   },
   {
     title: "Bildirilen bir sorunu çözün",
@@ -50,15 +50,15 @@ const ACCOUNTANT_STEPS: HelpStep[] = [
   },
   {
     title: "Fişleri işlenmiş olarak işaretleyin",
-    body: "Bir fişe uzun basarak tek tek, ya da alt çubuktaki toplu işaretleme düğmesiyle bir kerede, mükellefin fişlerini işlenmiş olarak işaretlersiniz.",
+    body: "Tek bir fişi uzun basarak işlenmiş olarak işaretlersiniz; birden çok fişi aynı anda işaretlemek için toplu işaretleme düğmesini kullanırsınız. Aynı işlemi tekrarlayarak işareti geri alabilirsiniz.",
   },
   {
     title: "Ayı kapatın",
-    body: "Mükellefin ayını kapatmak için ay durumundaki düğmeye dokunursunuz; kapatılan ayda mükellef fiş silemez ve düzenleyemez, siz düzenlemeye devam edebilir, ayı istediğiniz zaman yeniden açabilirsiniz.",
+    body: "Mükellefin ayını kapatmak için ay durumundaki düğmeye dokunursunuz; kapatılan ayda mükellef fiş silemez, düzenleyemez ve ayını değiştiremez, bu aya göndereceği yeni fişler otomatik olarak bir sonraki açık aya eklenir. Siz düzenlemeye devam edebilirsiniz ve ayı istediğiniz zaman yeniden açabilirsiniz.",
   },
   {
     title: "Arşivi dışa aktarın",
-    body: "Ay içindeki tüm fişleri tek dokunuşla ZIP olarak cihazınıza indirip paylaşabilirsiniz.",
+    body: "Ayın tüm fişlerini ZIP olarak indirmek istediğinizde paylaşım ekranı açılır; oradan dosyayı istediğiniz uygulamaya kaydedebilir veya gönderebilirsiniz. O ay için indirilecek fiş yoksa ya da cihazda paylaşılacak bir uygulama yoksa bunu bildiren bir mesaj görürsünüz.",
   },
 ];
 
@@ -73,7 +73,13 @@ const STEPS_BY_ROLE: Record<Role, HelpStep[]> = {
  * (unlike `profil.tsx`) it doesn't need `AuthShell`'s
  * `KeyboardAvoidingView` pairing.
  */
-export function HelpContent({ role, onReplayIntro }: { role: Role; onReplayIntro: () => void }) {
+export function HelpContent({
+  role,
+  onReplayIntro,
+}: {
+  role: Role;
+  onReplayIntro: () => void | Promise<void>;
+}) {
   const steps = STEPS_BY_ROLE[role];
 
   return (
