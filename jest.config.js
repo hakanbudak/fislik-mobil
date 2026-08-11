@@ -3,6 +3,10 @@ const jestExpoPreset = require("jest-expo/jest-preset");
 module.exports = {
   preset: "jest-expo",
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
+  // Must stay above jest.setup.ts's `asyncUtilTimeout` (5s), or a slow
+  // `waitFor` gets cut short by Jest and reported as a bare test timeout
+  // instead of the assertion that actually failed.
+  testTimeout: 15000,
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",
     // The RN Jest environment resolves package "exports" maps with

@@ -98,13 +98,6 @@ same problem one level up.
 refetches. There is no push channel, and they do receive an `issue_resolved`
 notification.
 
-## Watch
-
-**Three `waitFor` screen tests** (davet, mukellef, firma-bilgileri) were
-reported flaky under parallel workers. Neither the controller (twice) nor two
-reviewers could reproduce it. If CI ever flakes there, raise those three
-timeouts.
-
 ## Before store submission
 
 Not code — these need a human:
