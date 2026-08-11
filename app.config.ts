@@ -69,8 +69,21 @@ const config: ExpoConfig = {
         // `styles.xml` still references it — a dangling resource that
         // aapt2 fails to link at Android build time. A transparent image
         // keeps the resource real while staying invisible.
+        // `imageWidth` must stay a multiple of 4. `withAndroidSplashImages.js`
+        // computes `size = imageWidth * densityMultiplier` (densities:
+        // mdpi×1, hdpi×1.5, xhdpi×2, xxhdpi×3, xxxhdpi×4) and
+        // `offset = (288 * densityMultiplier - size) / 2`, then passes both
+        // straight to `sharp.resize()`/`composite({left, top})`, which
+        // reject non-integers. `imageWidth: 1` (tried first) makes `size`
+        // and/or `offset` fractional at mdpi, hdpi and xxhdpi — verified by
+        // hand for every density multiplier, not just hdpi. It only "worked"
+        // in local verification because this environment has no `sharp`
+        // installed, so `expo prebuild` fell back to the tolerant Jimp path;
+        // EAS build images do have `sharp` and would fail there. 100 (the
+        // library's own default, also a multiple of 4) keeps every density's
+        // `size` and `offset` integral, confirmed the same way.
         image: "./assets/splash-blank.png",
-        imageWidth: 1,
+        imageWidth: 100,
         resizeMode: "cover",
         backgroundColor: "#0f766e",
       },

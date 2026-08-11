@@ -92,7 +92,24 @@ export default function RootLayout() {
     PlusJakartaSans_700Bold,
     PlusJakartaSans_800ExtraBold,
   });
-  const fontsSettled = loaded || !!fontError;
+
+  // `fontError` covers useFonts *rejecting*. It does not cover useFonts
+  // simply never settling — no `loaded`, no `fontError`, forever (a hung
+  // asset fetch with no failure event, for instance). That path is just as
+  // fatal as the one above: `return null` never resolves and the native
+  // splash never hides. `bootTimedOut` closes it the same way C1 bounds
+  // the splash animation itself — a deadline, not a promise the platform
+  // is trusted to keep. Same fail-open reasoning as the font-error case:
+  // rendering in system fonts beats never rendering.
+  const [bootTimedOut, setBootTimedOut] = useState(false);
+  const fontsSettled = loaded || !!fontError || bootTimedOut;
+
+  useEffect(() => {
+    if (fontsSettled) return;
+    const remaining = Math.max(0, splashDeadline - Date.now());
+    const timer = setTimeout(() => setBootTimedOut(true), remaining);
+    return () => clearTimeout(timer);
+  }, [fontsSettled]);
 
   // Created once via useState so re-renders never mint a second client.
   const [queryClient] = useState(
@@ -141,9 +158,9 @@ export default function RootLayout() {
         </QueryClientProvider>
         {/* `loaded` (not just `fontsSettled`) gates the splash: it needs
             `font.extraBold` to render its wordmark faithfully, and a font
-            error means there is nothing to seamlessly hand off from in the
-            first place — skip straight to the (degraded-font) app instead
-            of animating a broken wordmark. */}
+            error or a boot timeout both mean there is nothing to seamlessly
+            hand off from in the first place — skip straight to the
+            (degraded-font) app instead of animating a broken wordmark. */}
         {showSplash && loaded && <SplashOverlay deadline={splashDeadline} onDone={() => setShowSplash(false)} />}
       </SafeAreaProvider>
     </GestureHandlerRootView>

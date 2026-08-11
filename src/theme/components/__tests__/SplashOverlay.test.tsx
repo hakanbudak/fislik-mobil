@@ -1,6 +1,17 @@
 import { act, render, screen } from "@testing-library/react-native";
 import { AccessibilityInfo, Animated } from "react-native";
-import { FULL_SEQUENCE_TOTAL_MS, PRINT_HIDDEN_Y, SplashOverlay, WORDMARK_HIDDEN_Y } from "../SplashOverlay";
+import { SplashOverlay } from "../SplashOverlay";
+
+// Assertions below compare against numeric literals derived by hand from
+// the design handoff, not against `SplashOverlay`'s own exported constants
+// (`PRINT_HIDDEN_Y`, `FULL_SEQUENCE_TOTAL_MS`, ...) — deliberately. A test
+// that reads `PRINT_HIDDEN_Y` from the component and then asserts the
+// rendered value equals `PRINT_HIDDEN_Y` passes even for a mutant that sets
+// `PRINT_HIDDEN_Y = 0`, since both sides of the comparison move together.
+// Same for the total-duration sum: `FULL_SEQUENCE_TOTAL_MS` is *computed*
+// from `PRINT_DELAY`/`HOLD_DELAY`/etc, so comparing against it can't catch
+// drift in those constants — only a fixed number computed independently,
+// here, can.
 
 // Real AccessibilityInfo.isReduceMotionEnabled() rejects in this test
 // environment (no native accessibility module registered) — the component
@@ -63,9 +74,13 @@ test("mounts with the mark translated fully above the print window and the wordm
   const markStyle = flattenStyle(getByTestId("splash-print-mark").props.style);
   const wordmarkStyle = flattenStyle(getByTestId("splash-wordmark").props.style);
 
-  expect(markStyle.transform).toEqual([{ translateY: PRINT_HIDDEN_Y }]);
+  // -188.24 = -104% of the mark's own 181px height (handoff: "translateY(
+  // -104%) → 0" inside the print window, mark is 128×181). Computed by
+  // hand, not imported from `PRINT_HIDDEN_Y`.
+  expect(markStyle.transform).toEqual([{ translateY: -188.24 }]);
   expect(wordmarkStyle.opacity).toBe(0);
-  expect(wordmarkStyle.transform).toEqual([{ translateY: WORDMARK_HIDDEN_Y }]);
+  // 10 = the handoff's "translateY(10px) → 0" for the wordmark.
+  expect(wordmarkStyle.transform).toEqual([{ translateY: 10 }]);
 });
 
 // Pins the print step's translate range (toValue: 0, i.e. it actually
@@ -106,14 +121,21 @@ test("configures the print step's translate range and the sequence's total durat
   expect(wordmarkOpacityTiming).toBeDefined();
   expect(exitTiming).toBeDefined();
 
-  // Sums to the handoff's overall duration. The wordmark's second 350ms
-  // `Animated.timing` call (translateY) is deliberately excluded here: it
-  // runs inside `Animated.parallel` alongside the opacity one counted
-  // above, at the same time, not one after the other, so counting both
-  // would double the wordmark step's contribution to the total.
+  // Sums to the handoff's overall duration (as intentionally trimmed for
+  // safety margin — see HOLD_DELAY's comment in SplashOverlay.tsx: the
+  // handoff's literal ~2.25s was shortened to ~2.05s). The wordmark's
+  // second 350ms `Animated.timing` call (translateY) is deliberately
+  // excluded here: it runs inside `Animated.parallel` alongside the
+  // opacity one counted above, at the same time, not one after the other,
+  // so counting both would double the wordmark step's contribution to the
+  // total.
   const totalDelay = delaySpy.mock.calls.reduce((sum, [ms]) => sum + ms, 0);
   const total = totalDelay + printTiming![1].duration! + wordmarkOpacityTiming![1].duration! + exitTiming![1].duration!;
-  expect(total).toBe(FULL_SEQUENCE_TOTAL_MS);
+  // 2050 = 250 (print delay) + 800 (print) + 350 (wordmark) + 400 (hold) +
+  // 250 (exit fade), computed by hand — not imported from
+  // `FULL_SEQUENCE_TOTAL_MS`, which is *derived from* those same
+  // constants and so can't independently catch drift in them.
+  expect(total).toBe(2050);
 });
 
 // I10: the mark's drop shadow must live on the view that actually paints
@@ -131,6 +153,16 @@ test("the print window clips but does not itself carry a shadow; the shadow live
   expect(windowStyle.elevation).toBeUndefined();
   expect(markStyle.shadowOpacity).toBeGreaterThan(0);
   expect(markStyle.elevation).toBeGreaterThan(0);
+});
+
+// N3: on Android, `elevation` casts a shadow off the view's background
+// drawable — a view with no background at all gets no shadow regardless of
+// `elevation`. An explicit fully-transparent background gives it one
+// without painting anything visible.
+test("the mark's shadow-casting view has an explicit transparent background, not no background at all", () => {
+  const { getByTestId } = render(<SplashOverlay onDone={jest.fn()} />);
+  const markStyle = flattenStyle(getByTestId("splash-print-mark").props.style);
+  expect(markStyle.backgroundColor).toBe("transparent");
 });
 
 test("does not call onDone in the first 100ms (the print alone starts 250ms in)", async () => {

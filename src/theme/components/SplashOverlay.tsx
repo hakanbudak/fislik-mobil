@@ -270,12 +270,34 @@ const styles = StyleSheet.create({
   // both clips (`masksToBounds`) and casts a shadow (`shadowOpacity`) loses
   // the shadow entirely: the two are mutually exclusive on one layer.
   // Nesting the shadow one level in, on a plain (non-clipping) view, lets
-  // it render — clipped by the ancestor's bounds like everything else
-  // inside `window`, which is the correct visual result: the shadow should
-  // only be visible for the portion of the "paper" that has emerged from
-  // the slot. `elevation` (Android's shadow mechanism) is included here
-  // too, since Android elevation was previously only set on `slot`.
+  // it render on iOS.
+  //
+  // `backgroundColor: "transparent"` is not decorative — Android's
+  // `elevation` derives its shadow-casting outline from the view's
+  // background drawable; a view with no background at all (the previous
+  // state here) gets no outline and casts no shadow regardless of
+  // `elevation`. Setting an explicit fully-transparent background gives it
+  // one without painting anything visible. "transparent" isn't a brand
+  // color needing a token — it's the platform's own no-op keyword for "no
+  // fill," the same role `overflow: "hidden"` plays as a layout keyword
+  // rather than a design value.
+  //
+  // Two limitations documented rather than chased, per design review: this
+  // is unverified on a physical Android 12+ device/emulator (none
+  // available in this environment) — `elevation` needing a background is a
+  // widely-documented RN/Android behavior, but I have not watched it
+  // render here. And on *both* platforms, the shadow is geometrically too
+  // big for its box once the mark reaches rest: `window` is 192px tall,
+  // the mark is 181px, leaving 11px of clearance below it, but this
+  // shadow's offset (8px) + radius (20px) needs roughly 28px of room below
+  // the mark's bottom edge to render in full — a direct consequence of the
+  // handoff's own fixed pixel values, not something fixable without either
+  // changing `WINDOW_HEIGHT`/`MARK_HEIGHT` (both explicit handoff
+  // measurements) or shrinking the shadow's own offset/radius below what
+  // the handoff specifies. Left as-is: the top and sides render correctly;
+  // the very bottom of the shadow is clipped at rest.
   printMark: {
+    backgroundColor: "transparent",
     shadowColor: tokens.color.ink,
     shadowOpacity: 0.16,
     shadowRadius: 20,

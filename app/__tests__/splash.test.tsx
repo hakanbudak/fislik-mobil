@@ -49,6 +49,16 @@ beforeEach(() => {
   __resetSplashPlayedForTests();
 });
 
+afterEach(() => {
+  // Guards against a fake-timer test above leaking into a later real-timer
+  // one, and against a persistent `useFonts` mock override (used by the
+  // boot-timeout test below) leaking into a later test that expects the
+  // default "fonts loaded" behavior.
+  jest.useRealTimers();
+  const useFonts = jest.requireMock("expo-font").useFonts as jest.Mock;
+  useFonts.mockImplementation(() => [true, undefined]);
+});
+
 test("the splash overlay is present over the app on mount, and unmounts once its sequence finishes", async () => {
   render(<RootLayout />);
   expect(screen.getByTestId("splash-overlay")).toBeOnTheScreen();
@@ -99,5 +109,35 @@ test("a font-load failure still lets the app appear, without the splash", () => 
   // `font.extraBold` to render its wordmark faithfully, and there is
   // nothing to seamlessly hand off to in the first place if fonts never
   // resolved.
+  expect(screen.queryByTestId("splash-overlay")).not.toBeOnTheScreen();
+});
+
+// N2: `fontError` only covers useFonts *rejecting*. A `useFonts` call that
+// simply never settles — no `loaded`, no `fontError`, ever — is just as
+// capable of hanging the app forever, since `return null` sits above every
+// other timer in the component. `bootTimedOut` is the fallback for that.
+test("a useFonts call that never settles still yields app content within the deadline", async () => {
+  jest.useFakeTimers();
+  const useFonts = jest.requireMock("expo-font").useFonts as jest.Mock;
+  useFonts.mockImplementation(() => [false, undefined]);
+
+  render(<RootLayout />);
+  // Still genuinely waiting immediately after mount — this isn't a
+  // vacuous "app renders eventually" test; it also pins that nothing
+  // resolves before the deadline fires.
+  expect(screen.queryByTestId("app-content")).not.toBeOnTheScreen();
+
+  // 2600ms safely exceeds the 2.5s deadline regardless of how much of it
+  // was already spent before this test ran (the deadline is a fixed
+  // absolute timestamp set once at module-evaluation time, not reset per
+  // test), so this is deterministic independent of test order/timing.
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(2600);
+  });
+
+  expect(screen.getByTestId("app-content")).toBeOnTheScreen();
+  // Fonts never actually loaded — the splash needs `font.extraBold` to
+  // render its wordmark faithfully, so it's skipped, same as the
+  // font-error case above.
   expect(screen.queryByTestId("splash-overlay")).not.toBeOnTheScreen();
 });
