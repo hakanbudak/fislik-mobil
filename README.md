@@ -105,10 +105,25 @@ fields.
 
 ## Store assets — status
 
-`assets/icon.png`, `assets/adaptive-icon.png` and `assets/splash.png` are real
-Fişlik-branded artwork (rendered directly from the same vector geometry as
-`fislik-web`'s `FislikMark.tsx` and matched against `fislik-web/public/icons/icon-512.png`),
-not placeholders. Before submitting to the stores, a human should still:
+`assets/icon.png` and `assets/adaptive-icon.png` are real Fişlik-branded artwork
+(rendered directly from the same vector geometry as `fislik-web`'s `FislikMark.tsx`
+and matched against `fislik-web/public/icons/icon-512.png`), not placeholders.
+
+`assets/splash-blank.png` is deliberately *not* branded artwork — it's a 1x1
+fully-transparent PNG. The launch screen is drawn entirely in JS
+(`src/theme/components/SplashOverlay.tsx`, a teal background with the mark
+"printing" out of a slot), so the native splash `expo-splash-screen` shows
+before the JS overlay takes over must reveal nothing but its `backgroundColor`
+— a *visible* native splash image would flash in and then vanish once the
+overlay mounts. The image can't simply be omitted, though: on Android,
+`expo-splash-screen`'s config plugin unconditionally points the Android 12+
+`windowSplashScreenAnimatedIcon` style at a generated drawable resource, but
+only generates that resource when `image` is set — omitting it left a style
+referencing a drawable that doesn't exist, which fails Android resource
+linking at build time. The transparent image keeps the resource real while
+staying invisible.
+
+Before submitting to the stores, a human should still:
 
 - Confirm the icon renders correctly across iOS's icon shapes (circle, squircle,
   rounded square) and Android's various launcher masks on a real device/simulator —
