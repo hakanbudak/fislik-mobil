@@ -23,6 +23,10 @@ export const tokens = {
     // A translucent ring around the shutter button, on top of the solid
     // `onPrimary` fill.
     onPrimaryMuted: "rgba(255, 255, 255, 0.5)",
+    // A faint translucent white used for the splash screen's "print slot"
+    // bar sitting on top of `primary` — distinct opacity from
+    // `onPrimaryMuted`, which is a different design's ring treatment.
+    onPrimaryFaint: "rgba(255, 255, 255, 0.28)",
   },
   radius: { sm: 8, md: 11, lg: 14, pill: 999 },
   space: (n: number) => n * 4,

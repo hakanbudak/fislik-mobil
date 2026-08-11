@@ -13,10 +13,17 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "@/src/auth/AuthProvider";
 import { CrashScreen } from "@/src/theme/components/CrashScreen";
+import { SplashOverlay } from "@/src/theme/components/SplashOverlay";
 import { invalidateAfterUpload } from "@/src/upload/invalidateAfterUpload";
 import { startWorker } from "@/src/upload/worker";
 
 SplashScreen.preventAutoHideAsync();
+
+// Module-scoped, not component state: guarantees the launch animation plays
+// once per cold start even if `RootLayout` were ever remounted (Fast
+// Refresh in dev, for instance) — it must never replay on a re-render or a
+// navigation, both of which happen far more often than a real cold start.
+let splashPlayed = false;
 
 /**
  * The root layout's crash boundary — expo-router wraps the WHOLE app in a
@@ -53,6 +60,10 @@ export default function RootLayout() {
     () => new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 30_000 } } }),
   );
 
+  // Lazy init so a remount (Fast Refresh) after the animation already
+  // finished this cold start doesn't show it again.
+  const [showSplash, setShowSplash] = useState(() => !splashPlayed);
+
   useEffect(() => {
     if (loaded) SplashScreen.hideAsync();
   }, [loaded]);
@@ -72,12 +83,20 @@ export default function RootLayout() {
     // SafeAreaProvider sits inside it so every screen can reach the device insets.
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StatusBar style="dark" />
+        <StatusBar style={showSplash ? "light" : "dark"} />
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <Slot />
           </AuthProvider>
         </QueryClientProvider>
+        {showSplash && (
+          <SplashOverlay
+            onDone={() => {
+              splashPlayed = true;
+              setShowSplash(false);
+            }}
+          />
+        )}
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

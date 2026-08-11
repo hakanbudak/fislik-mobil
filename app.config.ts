@@ -48,10 +48,15 @@ const config: ExpoConfig = {
     [
       "expo-splash-screen",
       {
-        image: "./assets/splash.png",
-        imageWidth: 200,
-        resizeMode: "contain",
-        backgroundColor: "#e9eeed",
+        // No `image`: the JS splash overlay (SplashOverlay) draws the mark
+        // itself, "printing" it in from above a slot. `assets/splash.png`
+        // already renders the mark in-place and teal-on-transparent — if
+        // the native splash showed it too, the mark would flash into view
+        // statically, then vanish, then re-print once the JS overlay takes
+        // over. A plain background is the only frame that can hand off to
+        // the overlay's pre-print state (teal + slot, mark hidden above the
+        // window) without a visible jump.
+        backgroundColor: "#0f766e",
       },
     ],
   ],
