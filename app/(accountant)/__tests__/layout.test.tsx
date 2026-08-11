@@ -1,7 +1,10 @@
+/// <reference types="node" />
+import path from "node:path";
 import { Tabs } from "expo-router";
 import { render, screen } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import AccountantTabsLayout from "../_layout";
+import { registeredRouteNames } from "@/src/test/expoRouterRegistry";
 
 // See app/(client)/__tests__/layout.test.tsx for why `<Tabs>`/`<Tabs.Screen>`
 // are replaced with passthrough stand-ins rather than rendering the real
@@ -30,34 +33,34 @@ function renderLayout() {
   );
 }
 
+const VISIBLE_ROUTES = ["index", "bildirimler", "profil"];
 // `app/(accountant)/mukellef/` has no `_layout.tsx` of its own, so
 // expo-router hoists every file under it into this group's own screen list
-// (see `getRoutesCore.js`: "Routes in directories without _layout files are
-// hoisted to the nearest _layout" / "The name of the route is relative to
-// the nearest _layout"), named by their path relative to `(accountant)/`
-// with extensions stripped: `mukellef/[clientId].tsx`,
-// `mukellef/[clientId]/kamera.tsx`, and `mukellef/[clientId]/fis/[id].tsx`
-// become these three route names.
+// (see `getRoutesCore.js`: routes in a directory without `_layout` are
+// hoisted to the nearest one, named by their path relative to it). The
+// exact names below are asserted against expo-router's real `getRoutes()`
+// output below, not just assumed.
 const HIDDEN_ROUTES = ["mukellef/[clientId]", "mukellef/[clientId]/kamera", "mukellef/[clientId]/fis/[id]"];
 
-test("registers every route in the group, hiding the ones that are not tabs", () => {
+test("every route expo-router registers for this group is either an intended tab or hidden with href: null", () => {
+  // Derived from the real on-disk files in `app/(accountant)/` via
+  // expo-router's own `getRoutes()` — not from a hand-typed list — so a
+  // renamed file or a wrong hidden-route name shows up here as a mismatch,
+  // instead of two hand-typed strings silently agreeing with each other.
+  const registered = registeredRouteNames(path.join(__dirname, ".."));
+  expect(new Set(registered)).toEqual(new Set([...VISIBLE_ROUTES, ...HIDDEN_ROUTES]));
+
   renderLayout();
   const screens = screen.UNSAFE_getAllByType(Tabs.Screen);
-  const names = screens.map((s) => s.props.name);
+  const byName = new Map(screens.map((s) => [s.props.name, s]));
 
-  for (const hidden of HIDDEN_ROUTES) {
-    expect(names).toContain(hidden);
-  }
-
-  const hiddenScreens = screens.filter((s) => HIDDEN_ROUTES.includes(s.props.name));
-  expect(hiddenScreens).toHaveLength(HIDDEN_ROUTES.length);
-  for (const s of hiddenScreens) {
-    expect(s.props.options?.href).toBeNull();
-  }
-
-  const visibleScreens = screens.filter((s) => !HIDDEN_ROUTES.includes(s.props.name));
-  expect(visibleScreens).toHaveLength(3);
-  for (const s of visibleScreens) {
-    expect(s.props.options?.href).not.toBeNull();
+  for (const routeName of registered) {
+    const screenElement = byName.get(routeName);
+    expect(screenElement).toBeDefined();
+    if (HIDDEN_ROUTES.includes(routeName)) {
+      expect(screenElement?.props.options?.href).toBeNull();
+    } else {
+      expect(screenElement?.props.options?.href).not.toBeNull();
+    }
   }
 });

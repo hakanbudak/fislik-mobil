@@ -1,7 +1,10 @@
+/// <reference types="node" />
+import path from "node:path";
 import { Tabs } from "expo-router";
 import { render, screen } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import ClientTabsLayout from "../_layout";
+import { registeredRouteNames } from "@/src/test/expoRouterRegistry";
 
 // `<Tabs>` from expo-router needs a real router context (it reads the
 // current route's filename via `useContextKey`) that only exists once the
@@ -39,28 +42,28 @@ function renderLayout() {
   );
 }
 
+const VISIBLE_ROUTES = ["index", "muhasebecim", "bildirimler", "profil"];
 const HIDDEN_ROUTES = ["kamera", "firma-bilgileri", "fis/[id]"];
 
-test("registers every route in the group, hiding the ones that are not tabs", () => {
+test("every route expo-router registers for this group is either an intended tab or hidden with href: null", () => {
+  // Derived from the real on-disk files in `app/(client)/` via expo-router's
+  // own `getRoutes()` — not from a hand-typed list — so a renamed file or a
+  // wrong hidden-route name shows up here as a mismatch, instead of two
+  // hand-typed strings silently agreeing with each other.
+  const registered = registeredRouteNames(path.join(__dirname, ".."));
+  expect(new Set(registered)).toEqual(new Set([...VISIBLE_ROUTES, ...HIDDEN_ROUTES]));
+
   renderLayout();
   const screens = screen.UNSAFE_getAllByType(Tabs.Screen);
-  const names = screens.map((s) => s.props.name);
+  const byName = new Map(screens.map((s) => [s.props.name, s]));
 
-  for (const hidden of HIDDEN_ROUTES) {
-    expect(names).toContain(hidden);
-  }
-
-  // Each hidden route must carry href: null so it never renders in the bar.
-  const hiddenScreens = screens.filter((s) => HIDDEN_ROUTES.includes(s.props.name));
-  expect(hiddenScreens).toHaveLength(HIDDEN_ROUTES.length);
-  for (const s of hiddenScreens) {
-    expect(s.props.options?.href).toBeNull();
-  }
-
-  // The tab-bar-visible routes must NOT carry href: null.
-  const visibleScreens = screens.filter((s) => !HIDDEN_ROUTES.includes(s.props.name));
-  expect(visibleScreens).toHaveLength(4);
-  for (const s of visibleScreens) {
-    expect(s.props.options?.href).not.toBeNull();
+  for (const routeName of registered) {
+    const screenElement = byName.get(routeName);
+    expect(screenElement).toBeDefined();
+    if (HIDDEN_ROUTES.includes(routeName)) {
+      expect(screenElement?.props.options?.href).toBeNull();
+    } else {
+      expect(screenElement?.props.options?.href).not.toBeNull();
+    }
   }
 });
