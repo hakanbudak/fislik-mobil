@@ -31,12 +31,15 @@ export const tokens = {
     // (`app/tanitim.tsx`) — deliberately not `card` (#ffffff): the design
     // calls out this exact off-white for the "paper" surface.
     paper: "#fffdf7",
-    // Two more intro-tour-only opacities on top of `ink`, distinct from the
-    // existing `border` token (rgba(12,26,24,0.10)) — the design specifies
-    // these exact values for the card's dashed dividers and the pager's
-    // inactive dots, and reusing `border` would visibly not match.
-    inkFaintDivider: "rgba(12, 26, 24, 0.15)",
-    inkFaintDot: "rgba(12, 26, 24, 0.16)",
+    // The intro tour's dashed rules (receipt card header/footer dividers) —
+    // distinct opacity from the existing `border` token (rgba(12,26,24,0.10));
+    // the design specifies this exact value and reusing `border` would
+    // visibly not match.
+    divider: "rgba(12, 26, 24, 0.15)",
+    // An inactive progress-dot fill, also intro-tour-only. A third, slightly
+    // different `ink` opacity from both `border` and `divider` above — the
+    // design pins all three separately rather than sharing one.
+    dotInactive: "rgba(12, 26, 24, 0.16)",
   },
   radius: { sm: 8, md: 11, lg: 14, pill: 999 },
   space: (n: number) => n * 4,

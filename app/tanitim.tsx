@@ -3,12 +3,12 @@ import { Redirect, router } from "expo-router";
 import { Archive, Camera, CheckSquare, CloudOff, Lock, Radar, Send, UserPlus } from "lucide-react-native";
 import {
   Animated,
-  Dimensions,
   FlatList,
   Pressable,
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from "react-native";
@@ -23,34 +23,44 @@ import { Spinner } from "@/src/theme/components/Spinner";
 import { font, text } from "@/src/theme/typography";
 import { tokens } from "@/src/theme/tokens";
 
-const { width: windowWidth, height: windowHeight } = Dimensions.get("window");
-
 // Card pager geometry — see the design handoff ("Screen 2: Intro tour").
 // Cards are 300pt wide with a 16pt gap, so the FlatList snaps every 316pt;
 // the index must be derived from that interval, never from window width,
 // or the dots/İleri button desync from the card that's actually centered.
-const CARD_WIDTH = 300;
-const CARD_GAP = 16;
-const SNAP_INTERVAL = CARD_WIDTH + CARD_GAP;
-// (windowWidth - CARD_WIDTH) / 2 is the handoff's own formula (45 on a
-// 390pt viewport). Below ~332pt wide that goes small; clamped to a 12pt
-// floor so the first card never starts far enough right to run off a
-// narrow viewport — see the report for the exact numbers this protects.
-const CARD_INSET = Math.max(12, (windowWidth - CARD_WIDTH) / 2);
+export const CARD_WIDTH = 300;
+export const CARD_GAP = 16;
+export const SNAP_INTERVAL = CARD_WIDTH + CARD_GAP;
+// The minimum leading/trailing pager inset — see `cardInset` inside the
+// component for the formula this floors. On a narrow device that formula
+// can go small or negative; clamped here so the first card never starts
+// far enough right to run off-screen — see the report for the numbers.
+export const CARD_INSET_FLOOR = 12;
 const ZIGZAG_TOOTH = 12;
 const ZIGZAG_HEIGHT = 8;
-const DOT_SIZE = 7;
+export const DOT_SIZE = 7;
 const DOT_ACTIVE_WIDTH = 22;
-// (44 - DOT_SIZE) / 2, rounded up — same "grow a small hit target to the
-// 44pt minimum via hitSlop" pattern as MonthPicker's chevrons.
-const DOT_HIT_SLOP = 19;
+// The dots sit this far apart (styles.dots' own `gap`) — pulled out as a
+// constant because the horizontal hit-slop bound below is derived from it.
+export const DOTS_GAP = 6;
+// Vertical hit-slop can be as generous as the 44pt minimum touch target
+// wants: (44 - DOT_SIZE) / 2, rounded up, same as MonthPicker's chevrons.
+// There's nothing above or below a dot to collide with.
+const DOT_HIT_SLOP_VERTICAL = 19;
+// Horizontal hit-slop CANNOT reach 44pt: four dots 6pt apart leave no room
+// (176pt of non-overlapping targets vs. an ~43pt-wide dot row). Growing it
+// past half the gap makes neighbouring dots' touch areas overlap, and RN
+// resolves an overlap to the later-rendered (rightward) view — so tapping
+// dot 3 would jump to slide 4 instead. Kept strictly under DOTS_GAP / 2 so
+// that can never happen, at the cost of a small, unambiguous target
+// instead of a large, wrong one. Swiping and İleri/Başla stay full-size.
+export const DOT_HIT_SLOP_HORIZONTAL = 2;
 
 // The handoff's 396 is a target, not a floor: on a short viewport it would
-// overflow (measured against an iPhone SE, see the report). The card body
-// shrinks to whatever's left after the rest of the chrome (header, dots,
-// footer, the two zigzag strips, and the inset-aware top/bottom clearance)
-// is subtracted from the viewport, capped at 396 so it never grows past
-// the design value on a tall screen.
+// overflow (measured against the smallest Expo-SDK-57-supported device, see
+// the report). The card body shrinks to whatever's left after the rest of
+// the chrome (header, dots, footer, the two zigzag strips, and the
+// inset-aware top/bottom clearance) is subtracted from the viewport, capped
+// at 396 so it never grows past the design value on a tall screen.
 const CARD_BODY_TARGET_HEIGHT = 396;
 const HEADER_PADDING_TOP = 14;
 const HEADER_CONTENT_HEIGHT = 23;
@@ -245,7 +255,7 @@ function DashedDivider() {
         y1="1"
         x2="100%"
         y2="1"
-        stroke={tokens.color.inkFaintDivider}
+        stroke={tokens.color.divider}
         strokeWidth={1.5}
         strokeDasharray="4,3"
       />
@@ -318,7 +328,7 @@ function Dot({
   const width = anim.interpolate({ inputRange: [0, 1], outputRange: [DOT_SIZE, DOT_ACTIVE_WIDTH] });
   const backgroundColor = anim.interpolate({
     inputRange: [0, 1],
-    outputRange: [tokens.color.inkFaintDot, tokens.color.primary],
+    outputRange: [tokens.color.dotInactive, tokens.color.primary],
   });
   return (
     <Pressable
@@ -326,7 +336,12 @@ function Dot({
       accessibilityRole="button"
       accessibilityLabel={`${slideIndex + 1}. slayt`}
       accessibilityState={{ selected: active }}
-      hitSlop={{ top: DOT_HIT_SLOP, bottom: DOT_HIT_SLOP, left: DOT_HIT_SLOP, right: DOT_HIT_SLOP }}
+      hitSlop={{
+        top: DOT_HIT_SLOP_VERTICAL,
+        bottom: DOT_HIT_SLOP_VERTICAL,
+        left: DOT_HIT_SLOP_HORIZONTAL,
+        right: DOT_HIT_SLOP_HORIZONTAL,
+      }}
       onPress={onPress}
     >
       {/* `width` (and color) aren't native-drivable, so this animation runs
@@ -369,9 +384,19 @@ export default function TanitimScreen() {
   // `insets.bottom` to their outer View — so it has no ancestor to inherit
   // safe-area clearance from and must read+apply the insets itself.
   const insets = useSafeAreaInsets();
+  // `useWindowDimensions()`, not a one-time `Dimensions.get("window")` read
+  // at module load: the latter can never reflect a resize (foldables,
+  // Android split-screen, or simply rotating), so both the inset formula
+  // below and the adaptive card height would be frozen at whatever the
+  // dimensions happened to be when the JS bundle first evaluated.
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
 
   const slides = user ? slidesForRole(user.role) : CLIENT_SLIDES;
   const isLast = index === slides.length - 1;
+
+  // (windowWidth - CARD_WIDTH) / 2 is the handoff's own formula (45 on a
+  // 390pt viewport), floored at CARD_INSET_FLOOR — see its comment.
+  const cardInset = Math.max(CARD_INSET_FLOOR, (windowWidth - CARD_WIDTH) / 2);
 
   // See CARD_BODY_TARGET_HEIGHT's comment: shrink the card to whatever
   // vertical room is actually left once the (inset-aware) chrome is
@@ -451,7 +476,15 @@ export default function TanitimScreen() {
           decelerationRate="fast"
           showsHorizontalScrollIndicator={false}
           onMomentumScrollEnd={handleScroll}
-          contentContainerStyle={{ paddingHorizontal: CARD_INSET }}
+          // A horizontal ScrollView's content container defaults to
+          // `flexGrow: 1` with no cross-axis alignment, so it stretches to
+          // the pager's full height and the row of cards sits pinned to the
+          // top — `justifyContent: "center"` on the wrapping View (main
+          // axis there is vertical, but the ScrollView's own content
+          // container is what actually needs centering) does nothing.
+          // `alignItems: "center"` here is cross-axis (vertical, since this
+          // list is horizontal) centering on the content container itself.
+          contentContainerStyle={{ paddingHorizontal: cardInset, flexGrow: 1, alignItems: "center" }}
           renderItem={({ item, index: i }) => (
             <ReceiptCard
               slide={item}
@@ -502,7 +535,11 @@ const styles = StyleSheet.create({
     letterSpacing: -0.4,
     color: tokens.color.ink,
   },
-  pagerWrap: { flex: 1, justifyContent: "center" },
+  // Vertical centering of the cards happens on the FlatList's own
+  // `contentContainerStyle` (see its `alignItems: "center"`), not here —
+  // `justifyContent` on this plain View doesn't reach into the horizontal
+  // ScrollView's content container.
+  pagerWrap: { flex: 1 },
   card: { width: CARD_WIDTH },
   cardBody: {
     backgroundColor: tokens.color.paper,
@@ -518,7 +555,8 @@ const styles = StyleSheet.create({
     shadowColor: tokens.color.ink,
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.1,
-    shadowRadius: 11,
+    // The handoff's blur is 22 — match it directly rather than halving it.
+    shadowRadius: 22,
     elevation: 6,
   },
   divider: { alignSelf: "stretch" },
@@ -542,14 +580,28 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: tokens.color.inkSoft,
     textAlign: "center",
-    flex: 1,
+    // Not `flex: 1`: that sets flexBasis 0, capping this text to whatever
+    // space `minHeight` leaves for it — long copy (the accountant's slides)
+    // or a large Dynamic Type setting can then need more room than that box
+    // has, and RN doesn't truncate a plain Text by default, so it would
+    // silently overflow/clip instead of growing the card. `flexBasis: "auto"`
+    // uses the text's own measured (natural) size as the floor — it can
+    // never be squeezed below what it actually needs — while `flexGrow: 1`
+    // keeps today's "absorb any leftover space, push the meta row and
+    // barcode toward the bottom" behavior on a card taller than its content.
+    flexGrow: 1,
+    flexShrink: 0,
+    flexBasis: "auto",
   },
   metaRow: { flexDirection: "row", justifyContent: "space-between", alignSelf: "stretch" },
   metaLabel: { fontFamily: font.medium, fontSize: 11.5, color: tokens.color.inkSoft },
   metaValue: { fontFamily: font.bold, fontSize: 11.5, color: tokens.color.ink },
-  barcode: { width: 130, height: 24, flexDirection: "row", alignItems: "center", gap: 3, opacity: 0.6 },
+  // No `gap` here: 26 2pt bars with a fixed 3pt gap sum to 127pt, short of
+  // the design's 130pt. `justifyContent: "space-between"` instead lets the
+  // 25 gaps fractionally fill the exact 130pt width.
+  barcode: { width: 130, height: 24, flexDirection: "row", alignItems: "center", justifyContent: "space-between", opacity: 0.6 },
   barcodeBar: { width: 2, height: 24, backgroundColor: tokens.color.ink },
-  dots: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, paddingVertical: 16 },
+  dots: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: DOTS_GAP, paddingVertical: 16 },
   dot: { height: DOT_SIZE, borderRadius: tokens.radius.pill },
   footer: {
     flexDirection: "row",

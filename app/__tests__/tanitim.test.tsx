@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Redirect } from "expo-router";
+import { FlatList } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import TanitimScreen from "../tanitim";
+import TanitimScreen, { DOTS_GAP, DOT_HIT_SLOP_HORIZONTAL } from "../tanitim";
 
 // Card pager snap interval (300pt card + 16pt gap) — see app/tanitim.tsx.
 // The pager's index tracking must divide by this, not by window width, so
@@ -173,4 +174,57 @@ test("the header and footer fold in a real top/bottom safe-area inset instead of
   expect(headerStyle.paddingTop).toBe(73);
   // 34 (inset.bottom) + 20 (the footer's own design padding, tokens.space(5)).
   expect(footerStyle.paddingBottom).toBe(54);
+});
+
+test("a dot's horizontal hit-slop can never reach half the gap between dots", () => {
+  // C1 regression pin (review): the dots sit DOTS_GAP (6pt) apart. If
+  // horizontal hit-slop reached (or exceeded) half that gap, two
+  // neighbouring dots' touch areas would overlap, and RN resolves an
+  // overlapping tap to the later-rendered (rightward) view — so a tap
+  // aimed at dot 3 would silently land on dot 4 instead. This can't be
+  // caught by simulating a `press` on a specific element (fireEvent.press
+  // bypasses hit-testing entirely), so it pins the geometric invariant
+  // that prevents the overlap from ever existing, rather than the tap
+  // outcome itself.
+  expect(DOT_HIT_SLOP_HORIZONTAL).toBeLessThan(DOTS_GAP / 2);
+
+  mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
+  renderTour();
+  const dot = screen.getByTestId("tanitim-dot-1");
+  expect(dot.props.hitSlop.left).toBe(DOT_HIT_SLOP_HORIZONTAL);
+  expect(dot.props.hitSlop.right).toBe(DOT_HIT_SLOP_HORIZONTAL);
+});
+
+test("tapping a dot scrolls the pager by the 316pt snap interval, not by window width", () => {
+  // I2 regression pin (review): `setIndex` fires independently of the
+  // imperative scroll, so a test that only checks the resulting active
+  // dot (as the existing "tapping a dot jumps straight to that slide"
+  // test does) would stay green even if `goTo`'s `scrollToOffset` offset
+  // was computed off window width instead of SNAP_INTERVAL. Spying on the
+  // imperative call itself closes that gap.
+  const scrollSpy = jest.spyOn(FlatList.prototype, "scrollToOffset").mockImplementation(() => {});
+  mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
+  renderTour();
+
+  fireEvent.press(screen.getByTestId("tanitim-dot-2"));
+
+  expect(scrollSpy).toHaveBeenCalledWith({ offset: 2 * SNAP_INTERVAL, animated: true });
+  scrollSpy.mockRestore();
+});
+
+test("the pager's leading/trailing inset centers the first and last card for the viewport width", () => {
+  // I3 regression pin (review): nothing previously asserted on
+  // `contentContainerStyle.paddingHorizontal`, so swapping the handoff's
+  // `(windowWidth - CARD_WIDTH) / 2` formula for something else (window
+  // width itself, a fixed literal, ...) would leave every other test
+  // green. In this jest environment window width is 750
+  // (Dimensions.get("window").width, matched by useWindowDimensions()),
+  // so (750 - 300) / 2 = 225 — well above the 12pt floor, so this pins the
+  // formula itself, not the floor clamp (already covered by the module's
+  // own comment/report for narrow devices).
+  mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
+  renderTour();
+
+  const list = screen.getByTestId("tanitim-slides");
+  expect(list.props.contentContainerStyle.paddingHorizontal).toBe(225);
 });
