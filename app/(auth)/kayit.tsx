@@ -55,12 +55,18 @@ export default function RegisterScreen() {
       const user = await signUp({ email, password, full_name: fullName, role });
       // A freshly-registered client has no company profile yet, and that
       // profile is what their accountant reads when filing — so a client
-      // is walked into company setup with an onboarding marker (read by
-      // `app/(client)/firma-bilgileri.tsx` to show its "Şimdilik geç" skip
-      // button), while an accountant has no such profile and goes straight
-      // home. Mirrors `fislik-web/src/pages/RegisterPage.tsx`'s `onSuccess`.
+      // is walked straight into company setup with an onboarding marker
+      // (read by `app/(client)/firma-bilgileri.tsx` to show its "Şimdilik
+      // geç" skip button) rather than through the entry route, since the
+      // post-login tour must not preempt or interrupt that mandatory step.
+      // Mirrors `fislik-web/src/pages/RegisterPage.tsx`'s `onSuccess`.
+      //
+      // An accountant has no such profile, so nothing here needs to
+      // preempt: routing through "/" (the entry route) instead of straight
+      // to `/(accountant)` lets it decide tour vs. shell the same way a
+      // sign-in does, consistent with `app/(auth)/giris.tsx`.
       if (user.role === "accountant") {
-        router.replace("/(accountant)");
+        router.replace("/");
       } else {
         router.replace({ pathname: "/(client)/firma-bilgileri", params: { onboarding: "1" } });
       }

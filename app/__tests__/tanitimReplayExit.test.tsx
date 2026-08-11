@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Redirect } from "expo-router";
-import TanitimScreen from "../(auth)/tanitim";
+import TanitimScreen from "../tanitim";
 import Index from "../index";
 
 /**
@@ -16,6 +16,12 @@ import Index from "../index";
  */
 jest.mock("@/src/onboarding/introSeen", () => ({
   markIntroSeen: jest.fn().mockResolvedValue(undefined),
+  // `finish()` marks the flag seen before navigating to "/", so the
+  // real `app/index.tsx` this test then mounts must read it back as
+  // seen — otherwise it would (correctly) send the user back to the
+  // tour instead of their shell, which is not what this regression pin
+  // is checking.
+  hasSeenIntro: jest.fn().mockResolvedValue(true),
 }));
 
 let lastReplacedHref: string | undefined;
@@ -51,7 +57,7 @@ test("a signed-in client finishing a replayed tour lands back in their own shell
   // not to `/giris`, which is what the pre-fix hardcoded exit produced
   // regardless of session state.
   render(<Index />);
-  expect(mockedRedirect).toHaveBeenCalledWith({ href: "/(client)" }, undefined);
+  await waitFor(() => expect(mockedRedirect).toHaveBeenCalledWith({ href: "/(client)" }, undefined));
   expect(mockedRedirect).not.toHaveBeenCalledWith({ href: "/giris" }, expect.anything());
 });
 
@@ -63,6 +69,6 @@ test("a signed-in accountant finishing a replayed tour lands in the accountant s
   await waitFor(() => expect(lastReplacedHref).toBe("/"));
 
   render(<Index />);
-  expect(mockedRedirect).toHaveBeenCalledWith({ href: "/(accountant)" }, undefined);
+  await waitFor(() => expect(mockedRedirect).toHaveBeenCalledWith({ href: "/(accountant)" }, undefined));
   expect(mockedRedirect).not.toHaveBeenCalledWith({ href: "/giris" }, expect.anything());
 });

@@ -45,7 +45,7 @@ test("routes a freshly-registered client to company setup with the onboarding ma
   );
 });
 
-test("routes a freshly-registered accountant straight to their own home, no onboarding marker", async () => {
+test("routes a freshly-registered accountant through the entry route, not straight to their shell, so the intro tour gets a chance to show", async () => {
   mockSignUp.mockResolvedValue({ id: "u2", role: "accountant" });
   render(<RegisterScreen />);
   fireEvent.changeText(screen.getByLabelText("Ad Soyad"), "Deniz Mali Müşavirlik");
@@ -53,7 +53,7 @@ test("routes a freshly-registered accountant straight to their own home, no onbo
   fireEvent.changeText(screen.getByLabelText("Şifre"), "password123");
   fireEvent.press(screen.getByText("Mali müşavirim"));
   fireEvent.press(screen.getByText("Hesap oluştur"));
-  await waitFor(() => expect(mockedRouter.replace).toHaveBeenCalledWith("/(accountant)"));
+  await waitFor(() => expect(mockedRouter.replace).toHaveBeenCalledWith("/"));
 });
 
 test("rejects a short password without calling the API", async () => {

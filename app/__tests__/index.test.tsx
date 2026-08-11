@@ -21,47 +21,46 @@ const mockedStorage = AsyncStorage as jest.Mocked<typeof AsyncStorage>;
 
 beforeEach(() => jest.clearAllMocks());
 
-test("a first launch (intro not yet seen) routes to the tour", async () => {
+test("an anon visitor goes straight to the login screen, without consulting the intro flag", () => {
+  mockUseAuth.mockReturnValue({ status: "anon", user: null });
+  render(<Index />);
+  expect(mockedRedirect).toHaveBeenCalledWith({ href: "/giris" }, undefined);
+  expect(mockedStorage.getItem).not.toHaveBeenCalled();
+});
+
+test("an authed user who hasn't seen the intro (first launch, or an unset flag after the key changed) is routed to the tour", async () => {
   mockedStorage.getItem.mockResolvedValue(null);
-  mockUseAuth.mockReturnValue({ status: "anon", user: null });
+  mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
   render(<Index />);
-  await waitFor(() =>
-    expect(mockedRedirect).toHaveBeenCalledWith({ href: "/(auth)/tanitim" }, undefined),
-  );
+  await waitFor(() => expect(mockedRedirect).toHaveBeenCalledWith({ href: "/tanitim" }, undefined));
 });
 
-test("a second launch (intro already seen) goes straight to the login screen", async () => {
+test("an authed user who has seen the intro goes straight to their role shell", async () => {
   mockedStorage.getItem.mockResolvedValue("1");
-  mockUseAuth.mockReturnValue({ status: "anon", user: null });
+  mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
   render(<Index />);
-  await waitFor(() => expect(mockedRedirect).toHaveBeenCalledWith({ href: "/giris" }, undefined));
+  await waitFor(() => expect(mockedRedirect).toHaveBeenCalledWith({ href: "/(client)" }, undefined));
 });
 
-test("a failed flag read fails open, landing on the login screen rather than spinning forever", async () => {
+test("a failed flag read fails open, landing on the role shell rather than spinning forever", async () => {
   mockedStorage.getItem.mockRejectedValue(new Error("storage unavailable"));
-  mockUseAuth.mockReturnValue({ status: "anon", user: null });
+  mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "accountant" } });
   render(<Index />);
-  await waitFor(() => expect(mockedRedirect).toHaveBeenCalledWith({ href: "/giris" }, undefined));
+  await waitFor(() => expect(mockedRedirect).toHaveBeenCalledWith({ href: "/(accountant)" }, undefined));
 });
 
-test("holds the redirect, showing no Redirect call, while the flag is being read", () => {
+test("holds the redirect, showing no Redirect call, while the flag is being read for an authed user", () => {
   mockedStorage.getItem.mockReturnValue(new Promise(() => {})); // never resolves within the test
-  mockUseAuth.mockReturnValue({ status: "anon", user: null });
+  mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
   render(<Index />);
   expect(mockedRedirect).not.toHaveBeenCalled();
 });
 
-test("redirects an authed client to the client tab group without consulting the intro flag", async () => {
-  mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
-  render(<Index />);
-  expect(mockedRedirect).toHaveBeenCalledWith({ href: "/(client)" }, undefined);
-  expect(mockedStorage.getItem).not.toHaveBeenCalled();
-});
-
-test("redirects an authed accountant to the accountant tab group", () => {
+test("redirects an authed accountant with a seen flag to the accountant tab group", async () => {
+  mockedStorage.getItem.mockResolvedValue("1");
   mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "accountant" } });
   render(<Index />);
-  expect(mockedRedirect).toHaveBeenCalledWith({ href: "/(accountant)" }, undefined);
+  await waitFor(() => expect(mockedRedirect).toHaveBeenCalledWith({ href: "/(accountant)" }, undefined));
 });
 
 test("shows a spinner while the session restores", () => {

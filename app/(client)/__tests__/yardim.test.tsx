@@ -22,7 +22,7 @@ test("shows the taxpayer's own workflow", () => {
 test("replaying the intro resets the seen flag and navigates to the tour", async () => {
   render(<ClientYardimScreen />);
   fireEvent.press(screen.getByText(/tanıtım turunu tekrar izle/i));
-  await waitFor(() => expect(mockedRouter.replace).toHaveBeenCalledWith("/(auth)/tanitim"));
+  await waitFor(() => expect(mockedRouter.replace).toHaveBeenCalledWith("/tanitim"));
   expect(mockedResetIntro).toHaveBeenCalledTimes(1);
 });
 
@@ -30,5 +30,5 @@ test("still navigates to the tour even when resetting the flag fails", async () 
   mockedResetIntro.mockRejectedValue(new Error("storage unavailable"));
   render(<ClientYardimScreen />);
   fireEvent.press(screen.getByText(/tanıtım turunu tekrar izle/i));
-  await waitFor(() => expect(mockedRouter.replace).toHaveBeenCalledWith("/(auth)/tanitim"));
+  await waitFor(() => expect(mockedRouter.replace).toHaveBeenCalledWith("/tanitim"));
 });

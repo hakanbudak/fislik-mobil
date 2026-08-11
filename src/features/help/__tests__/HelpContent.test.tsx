@@ -13,14 +13,16 @@ test("an accountant sees the filing workflow, not the taxpayer's send step", () 
   expect(screen.queryByText(/muhasebecinize gönder/i)).toBeNull();
 });
 
-test("a client can replay the introduction, which is written for taxpayers", () => {
+test("a client can replay the introduction", () => {
   const onReplayIntro = jest.fn();
   render(<HelpContent role="client" onReplayIntro={onReplayIntro} />);
   fireEvent.press(screen.getByText(/tanıtım turunu tekrar izle/i));
   expect(onReplayIntro).toHaveBeenCalledTimes(1);
 });
 
-test("an accountant is not offered the replay action, because the tour is taxpayer-framed", () => {
-  render(<HelpContent role="accountant" onReplayIntro={jest.fn()} />);
-  expect(screen.queryByText(/tanıtım turunu tekrar izle/i)).toBeNull();
+test("an accountant can also replay the introduction — the tour is role-aware now, so the old client-only gate is gone", () => {
+  const onReplayIntro = jest.fn();
+  render(<HelpContent role="accountant" onReplayIntro={onReplayIntro} />);
+  fireEvent.press(screen.getByText(/tanıtım turunu tekrar izle/i));
+  expect(onReplayIntro).toHaveBeenCalledTimes(1);
 });

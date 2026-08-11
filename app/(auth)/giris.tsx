@@ -21,8 +21,14 @@ export default function LoginScreen() {
     setError(null);
     setLoading(true);
     try {
-      const user = await signIn(email, password);
-      router.replace(user.role === "accountant" ? "/(accountant)" : "/(client)");
+      // Route through the app's own entry point rather than straight to a
+      // role shell: `app/index.tsx` is what decides tour vs. shell for an
+      // authed user, and a sign-in that bypassed it would strand anyone
+      // whose intro flag is unset (every existing user, after the intro
+      // moved post-login and its storage key changed) without ever seeing
+      // the new tour until their next cold start.
+      await signIn(email, password);
+      router.replace("/");
     } catch (err) {
       // Login's 401 gets its own copy — the shared status map's default
       // ("Oturumun sona ermiş...") assumes an expired session, not a
