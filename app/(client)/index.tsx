@@ -169,5 +169,9 @@ const styles = StyleSheet.create({
     padding: tokens.space(2.5),
   },
   noticeText: { color: tokens.color.ink },
-  list: { paddingBottom: tokens.space(20) },
+  // Clears the raised camera button, which straddles the tab bar's top edge
+  // and so overhangs the list by half its 56pt height. space(10) = 40 leaves
+  // 12pt of breathing room past that 28pt overhang. The previous space(20)
+  // was sized for the bottom-right FAB this button replaced.
+  list: { paddingBottom: tokens.space(10) },
 });
