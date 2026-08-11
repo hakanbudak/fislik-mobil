@@ -110,3 +110,18 @@ Not code — these need a human:
   deep links open the app rather than falling back to the web.
 - The manual pass in `docs/manual-test-checklist.md`, which covers everything
   the test suite cannot reach.
+- **`eas build --platform android`.** The splash's `imageWidth` must keep the
+  Android density arithmetic integral, and this machine has no `sharp`, so
+  `expo prebuild` here takes a tolerant path that a real build image does not.
+  A wrong value fails resource linking at build time and nowhere earlier.
+- **The launch splash on a real cold start**, both platforms: the teal handover
+  with no icon flash on Android 12+, the print motion, the exit fade, and the
+  OS "Reduce Motion" toggle. Nothing about a cold start is exercisable in Jest.
+- **The intro tour's card layout on a device**: vertical centring, the zigzag
+  edges and their shadow, the snap-and-peek feel, and — because RNTL's
+  `fireEvent` bypasses hit-testing entirely — that a real finger on a progress
+  dot selects the dot it is over. That last one shipped a wrong-slide bug once.
+- **The mark's drop shadow is clipped at rest on both platforms.** The design's
+  own values make it impossible: a 192pt print window holding a 181pt mark
+  leaves 11pt, and the specified shadow needs 28pt. Raise with the designer
+  rather than contorting the layout.
