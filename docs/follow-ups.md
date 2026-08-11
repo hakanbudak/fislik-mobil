@@ -42,6 +42,15 @@ it landed in would close the gap.
 **`MonthPicker`'s next-month rule is untested.** It disables the next-month
 control beyond the current month; nothing pins that.
 
+**A first-time accountant sees the taxpayer's introduction.** The tour runs
+before login, where the role is unknown, and its four slides are taxpayer-framed
+by design ("send it to your accountant"). The help page no longer offers the
+replay to accountants, but the pre-login showing is unavoidable while the tour
+stays where it is. The route `/(auth)/tanitim` also carries no role check, so an
+accountant reaching it by deep link sees the same copy. Options: move the tour
+after login, add a role question to the first slide, or accept it. Needs a
+product decision, not a code fix.
+
 ## Accepted, no action planned
 
 **404 detection by message matching in `downloadMonthZip`.** No download
@@ -53,6 +62,24 @@ real native message strings from both platforms.
 
 **Queue ids are `Date.now()` plus randomness, not UUIDs.** Local-only and
 collision-improbable.
+
+**The route-registry test deep-imports `expo-router/build/getRoutes`.**
+`src/test/expoRouterRegistry.ts` reads the real route directories and runs
+expo-router's own route generation, which is what makes the tab-leak test able
+to fail. The cost is a dependency on a non-public path that an expo-router
+upgrade may move. The failure would be loud, not silent, and the alternative is
+a test that agrees with itself.
+
+**A phantom `Tabs.Screen` naming no real route is not caught.** The layout tests
+walk the registered routes checking each has a screen, never the reverse. The
+bug it would miss is inert — a screen config matching nothing does nothing.
+
+**The tab bar uses a solid `card` background where the web uses `bg-card/95`.**
+No translucent token exists, and a raw literal would break the no-literals rule.
+Adding the token is the fix if it ever matters visually.
+
+**Both tab shells duplicate ~25 lines of `screenOptions` verbatim** and nothing
+pins them equal, so the two bars can drift apart silently.
 
 **`UNSAFE_getByProps` in one test.** It reaches `handleSave`'s guard past
 RNTL's disabled-press swallowing. If a future RNTL version breaks it, extract
