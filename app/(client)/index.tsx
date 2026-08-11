@@ -1,8 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Camera } from "lucide-react-native";
 import { useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, StyleSheet, Text, View } from "react-native";
 import { ApiError } from "@/src/api/client";
 import {
   getSubmissionState,
@@ -156,15 +155,6 @@ export default function HomeScreen() {
         />
       )}
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Fiş çek"
-        style={styles.fab}
-        onPress={() => router.push("/(client)/kamera")}
-      >
-        <Camera color={tokens.color.onPrimary} size={24} />
-      </Pressable>
-
       <Toast message={toast} onHide={() => setToast(null)} />
     </View>
   );
@@ -180,20 +170,4 @@ const styles = StyleSheet.create({
   },
   noticeText: { color: tokens.color.ink },
   list: { paddingBottom: tokens.space(20) },
-  fab: {
-    position: "absolute",
-    right: tokens.space(4),
-    bottom: tokens.space(4),
-    width: 56,
-    height: 56,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.color.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: tokens.color.ink,
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
 });
