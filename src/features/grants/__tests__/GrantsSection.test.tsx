@@ -10,11 +10,15 @@ jest.mock("@/src/api/endpoints");
 
 const mocked = endpoints as jest.Mocked<typeof endpoints>;
 
-function renderSection(role: "client" | "accountant" = "client", showEmptyState?: boolean) {
+function renderSection(
+  role: "client" | "accountant" = "client",
+  showEmptyState?: boolean,
+  showActiveGrants?: boolean,
+) {
   const client = createTestQueryClient();
   return render(
     <QueryClientProvider client={client}>
-      <GrantsSection role={role} showEmptyState={showEmptyState} />
+      <GrantsSection role={role} showEmptyState={showEmptyState} showActiveGrants={showActiveGrants} />
     </QueryClientProvider>,
   );
 }
@@ -38,6 +42,17 @@ const outgoingActive: GrantOut = {
   direction: "outgoing",
   counterpart_name: "Selin Muhasebe",
   counterpart_email: "selin@muhasebe.com",
+  invited_role: "accountant",
+};
+
+const outgoingPending: GrantOut = {
+  id: "g3",
+  status: "pending",
+  invited_email: "bekleyen@muhasebe.com",
+  accountant_name: null,
+  direction: "outgoing",
+  counterpart_name: null,
+  counterpart_email: "bekleyen@muhasebe.com",
   invited_role: "accountant",
 };
 
@@ -183,6 +198,26 @@ test("shows the role-appropriate 422 override, not the generic validation messag
     expect(screen.getByText("Bu e-posta bir muhasebeci hesabına ait değil")).toBeOnTheScreen(),
   );
   expect(screen.queryByText("Gönderilen bilgiler geçersiz.")).toBeNull();
+});
+
+test("hides active grants when showActiveGrants is false, but keeps outgoing pending invites", async () => {
+  mocked.listGrants.mockResolvedValue([outgoingActive, outgoingPending]);
+  renderSection("accountant", false, false);
+
+  // The pending invite still renders as a `GrantCard` (with its own
+  // "Erişimi iptal et" cancel action) — only the active grant, named here,
+  // is withheld.
+  await waitFor(() => expect(screen.getByText("bekleyen@muhasebe.com")).toBeOnTheScreen());
+  expect(screen.queryByText("Selin Muhasebe")).toBeNull();
+  expect(screen.getAllByText("Erişimi iptal et")).toHaveLength(1);
+});
+
+test("still renders active grants with revoke when showActiveGrants is left at its default", async () => {
+  mocked.listGrants.mockResolvedValue([outgoingActive]);
+  renderSection("client");
+
+  await waitFor(() => expect(screen.getByText("Selin Muhasebe")).toBeOnTheScreen());
+  expect(screen.getByText("Erişimi iptal et")).toBeOnTheScreen();
 });
 
 test("shows the accountant-side 422 override when an accountant invites a non-client e-mail", async () => {

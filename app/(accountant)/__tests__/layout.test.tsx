@@ -48,6 +48,7 @@ const HIDDEN_ROUTES = [
   "mukellef/[clientId]",
   "mukellef/[clientId]/kamera",
   "mukellef/[clientId]/fis/[id]",
+  "mukellefleri-yonet",
   "yardim",
 ];
 

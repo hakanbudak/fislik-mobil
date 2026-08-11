@@ -26,6 +26,12 @@ import { font, text } from "@/src/theme/typography";
  * hoisted to the nearest one, named by their path relative to it) — without
  * `href: null` they leaked into the bar as untitled placeholder tabs.
  *
+ * `mukellefleri-yonet` is the same story without the hoisting: a real,
+ * reachable route (the active-grant management page linked from the
+ * Mükellefler screen) that must stay off the tab bar, so it also needs
+ * `href: null` — this exact defect (a new route becoming a fourth tab) has
+ * already been fixed once on this branch and must not recur.
+ *
  * Bar styling matches `(client)/_layout.tsx`'s, ported from the same web
  * source (`fislik-web/src/components/AccountantShell.tsx`'s narrow-screen
  * bottom nav, identical markup/classes to `ClientShell.tsx`'s).
@@ -77,6 +83,7 @@ export default function AccountantTabsLayout() {
         <Tabs.Screen name="mukellef/[clientId]" options={{ href: null }} />
         <Tabs.Screen name="mukellef/[clientId]/kamera" options={{ href: null }} />
         <Tabs.Screen name="mukellef/[clientId]/fis/[id]" options={{ href: null }} />
+        <Tabs.Screen name="mukellefleri-yonet" options={{ href: null }} />
         <Tabs.Screen name="yardim" options={{ href: null }} />
       </Tabs>
     </View>

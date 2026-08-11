@@ -67,8 +67,28 @@ const INVITE_ERROR_OVERRIDES: Record<Role, Record<number, string>> = {
  * only when non-empty, with no empty state of their own. This is a prop, not
  * a `role`-branch, because it is the mounting screen's layout that decides
  * whether a second empty state belongs here, not the viewer's role.
+ *
+ * `showActiveGrants` defaults to true, matching the client's Muhasebecim
+ * screen: `AccountantsPage.tsx` (the client's view of their accountants)
+ * shows active links inline with revoke, so the client mounting is
+ * unaffected by this prop's existence. The accountant's Mükellefler screen
+ * passes `false`: `AccountantClientsPage.tsx` never lists active grants with
+ * revoke on that screen — only incoming pending invites and the viewer's own
+ * outgoing pending invites — because active-grant management moved to the
+ * dedicated "Mükellefleri yönet" page. Pending outgoing grants still belong
+ * to the `own` bucket either way; only the `status === "active"` ones are
+ * withheld, again as a prop rather than a `role`-branch, since it's the
+ * mounting screen's layout deciding this, not the viewer's role.
  */
-export function GrantsSection({ role, showEmptyState = true }: { role: Role; showEmptyState?: boolean }) {
+export function GrantsSection({
+  role,
+  showEmptyState = true,
+  showActiveGrants = true,
+}: {
+  role: Role;
+  showEmptyState?: boolean;
+  showActiveGrants?: boolean;
+}) {
   const queryClient = useQueryClient();
   const grantsQuery = useQuery({ queryKey: queryKeys.grants(), queryFn: listGrants, retry: false });
 
@@ -108,6 +128,7 @@ export function GrantsSection({ role, showEmptyState = true }: { role: Role; sho
   const grants = grantsQuery.data ?? [];
   const incoming = grants.filter((g) => g.direction === "incoming" && g.status === "pending");
   const own = grants.filter((g) => !(g.direction === "incoming" && g.status === "pending"));
+  const visibleOwn = showActiveGrants ? own : own.filter((g) => g.status !== "active");
   const consentBusy = acceptMutation.isPending || declineMutation.isPending;
   const emptyCopy = EMPTY_STATE_COPY[role];
 
@@ -150,7 +171,7 @@ export function GrantsSection({ role, showEmptyState = true }: { role: Role; sho
         <EmptyState title={emptyCopy.title} description={emptyCopy.description} />
       ) : null}
 
-      {own.map((grant) => (
+      {visibleOwn.map((grant) => (
         <GrantCard
           key={grant.id}
           grant={grant}

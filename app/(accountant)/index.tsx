@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
+import { ChevronRight } from "lucide-react-native";
 import { useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { listClients } from "@/src/api/endpoints";
 import { queryKeys } from "@/src/api/queryKeys";
 import { ClientCard } from "@/src/features/clients/ClientCard";
@@ -31,6 +32,15 @@ import { text } from "@/src/theme/typography";
  * own). Passing `role="accountant"` alone would otherwise render a second,
  * near-duplicate "Henüz mükellefiniz yok" empty state from `GrantsSection`
  * itself.
+ *
+ * `showActiveGrants={false}` on `GrantsSection`: the web's
+ * `AccountantClientsPage.tsx` never lists active grants with a revoke
+ * control on this screen — only incoming pending invites and the viewer's
+ * own outgoing pending invites. Before this prop existed, every client
+ * appeared twice here: once as a `GrantCard` with "Erişimi iptal et", once
+ * as a `ClientCard` below with that month's upload status. Revoking now
+ * lives on the dedicated "Mükellefleri yönet" page (linked below, just
+ * above the client list), which this screen navigates to.
  *
  * Deliberately NOT matching the web: the invite form stays inline
  * (`GrantsSection`'s `InviteForm`), not the web's modal
@@ -64,7 +74,16 @@ export default function AccountantClientsScreen() {
         <MonthPicker value={period} onChange={setPeriod} />
       </View>
 
-      <GrantsSection role="accountant" showEmptyState={false} />
+      <GrantsSection role="accountant" showEmptyState={false} showActiveGrants={false} />
+
+      <Pressable
+        accessibilityRole="button"
+        style={styles.linkCard}
+        onPress={() => router.push("/(accountant)/mukellefleri-yonet")}
+      >
+        <Text style={[text.label, styles.linkText]}>Mükellefleri yönet</Text>
+        <ChevronRight color={tokens.color.primary} size={18} />
+      </Pressable>
 
       {clientsQuery.isLoading ? (
         <View style={styles.center}>
@@ -105,4 +124,15 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   title: { color: tokens.color.ink },
   center: { alignItems: "center", justifyContent: "center", padding: tokens.space(6) },
+  linkCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: tokens.space(4),
+    borderRadius: tokens.radius.lg,
+    backgroundColor: tokens.color.card,
+    borderWidth: 1,
+    borderColor: tokens.color.border,
+  },
+  linkText: { color: tokens.color.ink },
 });

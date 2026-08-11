@@ -30,6 +30,28 @@ const incomingInvite: GrantOut = {
   invited_role: "accountant",
 };
 
+const outgoingPendingInvite: GrantOut = {
+  id: "g2",
+  status: "pending",
+  invited_email: "yeni@ornek.com",
+  accountant_name: null,
+  direction: "outgoing",
+  counterpart_name: null,
+  counterpart_email: "yeni@ornek.com",
+  invited_role: "client",
+};
+
+const activeGrant: GrantOut = {
+  id: "g3",
+  status: "active",
+  invited_email: "aktif@ornek.com",
+  accountant_name: null,
+  direction: "outgoing",
+  counterpart_name: "Aktif Mükellef",
+  counterpart_email: "aktif@ornek.com",
+  invited_role: "client",
+};
+
 function renderScreen() {
   const queryClient = createTestQueryClient();
   return render(
@@ -92,4 +114,32 @@ test("navigates to the client's month view with the current period and the clien
     pathname: "/(accountant)/mukellef/[clientId]",
     params: { clientId: "c1", period: expect.any(String), full_name: "Ayşe Yıldırım" },
   });
+});
+
+test("does not render a revoke control for an active grant — that moved to Mükellefleri yönet", async () => {
+  mocked.listClients.mockResolvedValue([client]);
+  mocked.listGrants.mockResolvedValue([activeGrant]);
+  renderScreen();
+
+  await waitFor(() => expect(screen.getByText("Ayşe Yıldırım")).toBeOnTheScreen());
+  expect(screen.queryByText("Aktif Mükellef")).toBeNull();
+  expect(screen.queryByText("Erişimi iptal et")).toBeNull();
+});
+
+test("still shows the accountant's own outgoing pending invite", async () => {
+  mocked.listClients.mockResolvedValue([]);
+  mocked.listGrants.mockResolvedValue([outgoingPendingInvite]);
+  renderScreen();
+
+  await waitFor(() => expect(screen.getByText("yeni@ornek.com")).toBeOnTheScreen());
+  expect(screen.getByText("Bekliyor")).toBeOnTheScreen();
+});
+
+test("navigates to Mükellefleri yönet", async () => {
+  mocked.listClients.mockResolvedValue([]);
+  renderScreen();
+
+  await waitFor(() => expect(screen.getByText("Mükellefleri yönet")).toBeOnTheScreen());
+  fireEvent.press(screen.getByText("Mükellefleri yönet"));
+  expect(router.push).toHaveBeenCalledWith("/(accountant)/mukellefleri-yonet");
 });
