@@ -1,9 +1,10 @@
 import { Tabs } from "expo-router";
 import { User, Users } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ImpersonationBanner } from "@/src/auth/ImpersonationBanner";
 import { NotificationTabIcon } from "@/src/features/notifications/NotificationTabIcon";
 import { tokens } from "@/src/theme/tokens";
-import { text } from "@/src/theme/typography";
+import { font, text } from "@/src/theme/typography";
 
 /**
  * Accountant's tab shell — same structure as `(client)/_layout.tsx`:
@@ -11,8 +12,21 @@ import { text } from "@/src/theme/typography";
  * accountant sees the warning regardless of which tab is active (Task 20
  * built the banner and mounted it client-side; this file didn't exist yet
  * for the accountant side).
+ *
+ * `mukellef/[clientId]`, `mukellef/[clientId]/kamera` and
+ * `mukellef/[clientId]/fis/[id]` are real, reachable routes but not tabs of
+ * their own. There's no `mukellef/_layout.tsx`, so expo-router hoists all
+ * three of those files straight into this group's screen list (see
+ * `getRoutesCore.js`: routes in a directory without its own `_layout` are
+ * hoisted to the nearest one, named by their path relative to it) — without
+ * `href: null` they leaked into the bar as untitled placeholder tabs.
+ *
+ * Bar styling matches `(client)/_layout.tsx`'s, ported from the same web
+ * source (`fislik-web/src/components/AccountantShell.tsx`'s narrow-screen
+ * bottom nav, identical markup/classes to `ClientShell.tsx`'s).
  */
 export default function AccountantTabsLayout() {
+  const insets = useSafeAreaInsets();
   return (
     <>
       <ImpersonationBanner />
@@ -21,25 +35,42 @@ export default function AccountantTabsLayout() {
           headerShown: false,
           tabBarActiveTintColor: tokens.color.primary,
           tabBarInactiveTintColor: tokens.color.inkSoft,
-          tabBarStyle: { backgroundColor: tokens.color.card },
-          tabBarLabelStyle: text.caption,
+          tabBarStyle: {
+            backgroundColor: tokens.color.card,
+            borderTopColor: tokens.color.border,
+            borderTopWidth: 1,
+            paddingTop: tokens.space(1.5),
+            paddingBottom: tokens.space(2.5) + insets.bottom,
+            height: 56 + insets.bottom,
+          },
+          tabBarLabelStyle: { ...text.caption, fontFamily: font.bold, fontSize: 10 },
+          tabBarIconStyle: { marginBottom: 0 },
         }}
       >
         <Tabs.Screen
           name="index"
-          options={{ title: "Mükellefler", tabBarIcon: ({ color, size }) => <Users color={color} size={size} /> }}
+          options={{
+            title: "Mükellefler",
+            tabBarIcon: ({ color }) => <Users color={color} size={21} strokeWidth={1.9} />,
+          }}
         />
         <Tabs.Screen
           name="bildirimler"
           options={{
             title: "Bildirimler",
-            tabBarIcon: ({ color, size }) => <NotificationTabIcon color={color} size={size} />,
+            tabBarIcon: ({ color }) => <NotificationTabIcon color={color} size={21} />,
           }}
         />
         <Tabs.Screen
           name="profil"
-          options={{ title: "Profil", tabBarIcon: ({ color, size }) => <User color={color} size={size} /> }}
+          options={{
+            title: "Profil",
+            tabBarIcon: ({ color }) => <User color={color} size={21} strokeWidth={1.9} />,
+          }}
         />
+        <Tabs.Screen name="mukellef/[clientId]" options={{ href: null }} />
+        <Tabs.Screen name="mukellef/[clientId]/kamera" options={{ href: null }} />
+        <Tabs.Screen name="mukellef/[clientId]/fis/[id]" options={{ href: null }} />
       </Tabs>
     </>
   );
