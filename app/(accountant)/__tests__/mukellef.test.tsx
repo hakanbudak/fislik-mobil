@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import ClientMonthScreen from "../mukellef/[clientId]";
 import { ApiError } from "@/src/api/client";
 import * as endpoints from "@/src/api/endpoints";
@@ -398,6 +398,42 @@ describe("month locking", () => {
     fireEvent.press(screen.getByText("Ayı Kapat"));
 
     await waitFor(() => expect(screen.getByText("Bir şeyler ters gitti. Lütfen tekrar dene.")).toBeOnTheScreen());
+  });
+});
+
+describe("mobile-fit: the floating action bar holds only its three buttons", () => {
+  test("the credit note and the credit badge are not inside the action bar", async () => {
+    mocked.clientReceipts.mockResolvedValue([]);
+    mocked.getCredits.mockResolvedValue({ limit: 10, used: 3, remaining: 7, unlimited: false });
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("Bu ay 3/10 analiz")).toBeOnTheScreen());
+
+    const bar = within(screen.getByTestId("action-bar"));
+    expect(bar.queryByText(/analiz kredisi sizin hesabınızdan düşülür/i)).toBeNull();
+    expect(bar.queryByText("Bu ay 3/10 analiz")).toBeNull();
+  });
+
+  test("renders upload and ZIP export, without the bulk-mark button, when there are no receipts", async () => {
+    mocked.clientReceipts.mockResolvedValue([]);
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("Fiş Yükle")).toBeOnTheScreen());
+
+    const bar = within(screen.getByTestId("action-bar"));
+    expect(bar.queryByText("Tümünü işlendi yap")).toBeNull();
+    expect(bar.queryByText("Tümünün işaretini kaldır")).toBeNull();
+    expect(bar.getByText("Fiş Yükle")).toBeOnTheScreen();
+    expect(bar.getByText("ZIP indir · tüm ay")).toBeOnTheScreen();
+  });
+
+  test("renders all three buttons — bulk-mark, upload and ZIP export — when there are receipts", async () => {
+    mocked.clientReceipts.mockResolvedValue([receipt({ processed: false })]);
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("Tümünü işlendi yap")).toBeOnTheScreen());
+
+    const bar = within(screen.getByTestId("action-bar"));
+    expect(bar.getByText("Tümünü işlendi yap")).toBeOnTheScreen();
+    expect(bar.getByText("Fiş Yükle")).toBeOnTheScreen();
+    expect(bar.getByText("ZIP indir · tüm ay")).toBeOnTheScreen();
   });
 });
 

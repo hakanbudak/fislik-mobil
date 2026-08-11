@@ -82,6 +82,13 @@ import type { QueueRecord } from "@/src/upload/queue";
  * dialog, this screen only ever exports the ZIP (see the Task 22 brief for
  * why the export modal itself wasn't ported), so there is no format picker
  * here — the button IS the zip export.
+ *
+ * Mobile-fit follow-up: the floating bar used to also carry the credit
+ * explanation and the credit badge/warning — up to ~250pt of overlay that
+ * hid the receipt list underneath it on a phone. That copy isn't an
+ * action, so it now lives in the normal scrolling content, directly after
+ * the receipt list and before the bar; the bar itself holds only its three
+ * buttons (bulk-mark full width, then upload/ZIP as an equal-width pair).
  */
 export default function ClientMonthScreen() {
   const {
@@ -388,24 +395,17 @@ export default function ClientMonthScreen() {
         </>
       ) : null}
 
-      <View style={styles.actionBar}>
-        {receipts.length > 0 ? (
-          <Button
-            title={anyUnprocessed ? "Tümünü işlendi yap" : "Tümünün işaretini kaldır"}
-            onPress={() => bulkMutation.mutate(anyUnprocessed)}
-            loading={bulkMutation.isPending}
-            busyTitle="İşleniyor…"
-          />
-        ) : null}
-
-        <Button title="Fiş Yükle" variant="secondary" onPress={openCamera} />
-        <Button
-          title="ZIP indir · tüm ay"
-          variant="secondary"
-          onPress={() => zipMutation.mutate()}
-          loading={zipMutation.isPending}
-          busyTitle="İndiriliyor…"
-        />
+      {/*
+        Information about the upload action's cost, not an action itself —
+        moved out of `actionBar` (Task: mobile-fit) into the page's normal
+        scrolling content, directly after the receipt list and before the
+        bar, so it reads as the upload button's consequence without
+        floating on top of the receipts. Rendered unconditionally on
+        `rows.length` (matching the old bar's own unconditional credit
+        note) since "Fiş Yükle" is available whether or not this month has
+        receipts yet.
+      */}
+      <View style={styles.creditInfo}>
         <Text style={[text.caption, styles.creditNote]}>
           Muhasebeci olarak yüklediğiniz fişler bu mükellefin ayına eklenir ve analiz kredisi sizin
           hesabınızdan düşülür.
@@ -421,6 +421,39 @@ export default function ClientMonthScreen() {
             edilir.
           </Text>
         ) : null}
+      </View>
+
+      {/*
+        Actions only (Task: mobile-fit) — the credit note/badge used to live
+        here too, which made this overlay ~250pt tall and hid the receipt
+        list underneath it. Row 1 is the (conditional) bulk-mark action,
+        full width; row 2 is upload + ZIP export as equal-width peers,
+        matching the module docstring's Task 24/26 grouping rationale.
+      */}
+      <View style={styles.actionBar} testID="action-bar">
+        {receipts.length > 0 ? (
+          <Button
+            title={anyUnprocessed ? "Tümünü işlendi yap" : "Tümünün işaretini kaldır"}
+            onPress={() => bulkMutation.mutate(anyUnprocessed)}
+            loading={bulkMutation.isPending}
+            busyTitle="İşleniyor…"
+          />
+        ) : null}
+
+        <View style={styles.actionRow}>
+          <View style={styles.actionRowButton}>
+            <Button title="Fiş Yükle" variant="secondary" onPress={openCamera} />
+          </View>
+          <View style={styles.actionRowButton}>
+            <Button
+              title="ZIP indir · tüm ay"
+              variant="secondary"
+              onPress={() => zipMutation.mutate()}
+              loading={zipMutation.isPending}
+              busyTitle="İndiriliyor…"
+            />
+          </View>
+        </View>
       </View>
 
       <Toast message={toast} onHide={() => setToast(null)} />
@@ -560,14 +593,35 @@ const styles = StyleSheet.create({
   companyFieldLabel: { color: tokens.color.inkSoft },
   companyFieldValue: { color: tokens.color.ink },
   hint: { color: tokens.color.inkSoft, paddingHorizontal: tokens.space(3), paddingTop: tokens.space(2) },
-  list: { padding: tokens.space(2), paddingBottom: tokens.space(28) },
+  // Bottom padding sized to clear the now two-row (was up to five-element)
+  // floating bar — see `actionBar` below for why it no longer needs ~250pt.
+  list: { padding: tokens.space(2), paddingBottom: tokens.space(20) },
+  creditInfo: {
+    paddingHorizontal: tokens.space(3),
+    paddingTop: tokens.space(2),
+    gap: tokens.space(2),
+  },
   actionBar: {
     position: "absolute",
     left: tokens.space(3),
     right: tokens.space(3),
+    // No `insets.bottom` added here (verified, not assumed): this screen is
+    // one of the accountant tab navigator's own screens (see the module
+    // docstring — `mukellef/[clientId]` is hoisted straight into
+    // `(accountant)/_layout.tsx`'s `<Tabs>` with `href: null`, not pushed
+    // as a separate stack screen over it), so the always-on tab bar stays
+    // mounted underneath and this screen's content area is sized to the
+    // space ABOVE it, not down to the physical screen edge. The tab bar
+    // itself already pads for `insets.bottom` (`paddingBottom:
+    // tokens.space(2.5) + insets.bottom`, `_layout.tsx`), so this bar's
+    // fixed offset already clears the home indicator without adding the
+    // inset a second time — doing so would just waste vertical space above
+    // the tab bar.
     bottom: tokens.space(3),
     gap: tokens.space(2),
   },
+  actionRow: { flexDirection: "row", gap: tokens.space(2) },
+  actionRowButton: { flex: 1 },
   confirmCard: { gap: tokens.space(3) },
   confirmText: { color: tokens.color.ink },
   confirmRow: { flexDirection: "row", gap: tokens.space(2.5) },
