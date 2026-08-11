@@ -1,8 +1,10 @@
 import { Tabs } from "expo-router";
 import { Receipt, User, Users } from "lucide-react-native";
+import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ImpersonationBanner } from "@/src/auth/ImpersonationBanner";
 import { NotificationTabIcon } from "@/src/features/notifications/NotificationTabIcon";
+import { AppHeader } from "@/src/theme/components/AppHeader";
 import { tokens } from "@/src/theme/tokens";
 import { font, text } from "@/src/theme/typography";
 
@@ -11,8 +13,12 @@ import { font, text } from "@/src/theme/typography";
  * `profil` in Task 20 — all three are registered now with placeholder
  * screens so expo-router doesn't warn about a tab with no matching route.
  *
- * `<ImpersonationBanner />` sits above the tabs so it's visible regardless
- * of which tab is active, same placement as the web's shell-level mount.
+ * `<ImpersonationBanner />` sits above `<AppHeader />` (which sits above the
+ * tabs) so a warning stays the topmost thing on screen regardless of which
+ * tab is active, same placement as the web's shell-level mount. The outer
+ * `View` — not `AppHeader` — carries `paddingTop: insets.top`, so whichever
+ * element ends up topmost (the banner when impersonating, the header
+ * otherwise) clears the status bar/Dynamic Island.
  *
  * `kamera`, `firma-bilgileri` and `fis/[id]` are real routes in this group
  * (reachable via `router.push`) but aren't destinations of their own — they
@@ -30,8 +36,9 @@ import { font, text } from "@/src/theme/typography";
 export default function ClientTabsLayout() {
   const insets = useSafeAreaInsets();
   return (
-    <>
+    <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: tokens.color.card }}>
       <ImpersonationBanner />
+      <AppHeader />
       <Tabs
         screenOptions={{
           headerShown: false,
@@ -81,6 +88,6 @@ export default function ClientTabsLayout() {
         <Tabs.Screen name="firma-bilgileri" options={{ href: null }} />
         <Tabs.Screen name="fis/[id]" options={{ href: null }} />
       </Tabs>
-    </>
+    </View>
   );
 }

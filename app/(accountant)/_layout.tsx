@@ -1,17 +1,22 @@
 import { Tabs } from "expo-router";
 import { User, Users } from "lucide-react-native";
+import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ImpersonationBanner } from "@/src/auth/ImpersonationBanner";
 import { NotificationTabIcon } from "@/src/features/notifications/NotificationTabIcon";
+import { AppHeader } from "@/src/theme/components/AppHeader";
 import { tokens } from "@/src/theme/tokens";
 import { font, text } from "@/src/theme/typography";
 
 /**
  * Accountant's tab shell — same structure as `(client)/_layout.tsx`:
- * `<ImpersonationBanner />` above the tabs so an admin impersonating an
- * accountant sees the warning regardless of which tab is active (Task 20
- * built the banner and mounted it client-side; this file didn't exist yet
- * for the accountant side).
+ * `<ImpersonationBanner />` above `<AppHeader />` (which sits above the
+ * tabs) so an admin impersonating an accountant sees the warning regardless
+ * of which tab is active (Task 20 built the banner and mounted it
+ * client-side; this file didn't exist yet for the accountant side). The
+ * outer `View` — not `AppHeader` — carries `paddingTop: insets.top`, so
+ * whichever element ends up topmost (the banner when impersonating, the
+ * header otherwise) clears the status bar/Dynamic Island.
  *
  * `mukellef/[clientId]`, `mukellef/[clientId]/kamera` and
  * `mukellef/[clientId]/fis/[id]` are real, reachable routes but not tabs of
@@ -28,8 +33,9 @@ import { font, text } from "@/src/theme/typography";
 export default function AccountantTabsLayout() {
   const insets = useSafeAreaInsets();
   return (
-    <>
+    <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: tokens.color.card }}>
       <ImpersonationBanner />
+      <AppHeader />
       <Tabs
         screenOptions={{
           headerShown: false,
@@ -72,6 +78,6 @@ export default function AccountantTabsLayout() {
         <Tabs.Screen name="mukellef/[clientId]/kamera" options={{ href: null }} />
         <Tabs.Screen name="mukellef/[clientId]/fis/[id]" options={{ href: null }} />
       </Tabs>
-    </>
+    </View>
   );
 }
