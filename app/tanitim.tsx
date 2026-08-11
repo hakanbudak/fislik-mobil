@@ -1,24 +1,48 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Redirect, router } from "expo-router";
 import { Archive, Camera, CheckSquare, CloudOff, Lock, Radar, Send, UserPlus } from "lucide-react-native";
 import {
+  Animated,
   Dimensions,
   FlatList,
+  Pressable,
   StyleSheet,
   Text,
   View,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from "react-native";
+import Svg, { Line, Path } from "react-native-svg";
 import { useAuth } from "@/src/auth/AuthProvider";
 import { LockedScreen } from "@/src/auth/LockedScreen";
 import { markIntroSeen } from "@/src/onboarding/introSeen";
 import { Button } from "@/src/theme/components/Button";
+import { FislikMark } from "@/src/theme/components/FislikMark";
 import { Spinner } from "@/src/theme/components/Spinner";
+import { font, text } from "@/src/theme/typography";
 import { tokens } from "@/src/theme/tokens";
-import { text } from "@/src/theme/typography";
 
-const { width } = Dimensions.get("window");
+const { width: windowWidth } = Dimensions.get("window");
+
+// Card pager geometry — see the design handoff ("Screen 2: Intro tour").
+// Cards are 300pt wide with a 16pt gap, so the FlatList snaps every 316pt;
+// the index must be derived from that interval, never from window width,
+// or the dots/İleri button desync from the card that's actually centered.
+const CARD_WIDTH = 300;
+const CARD_GAP = 16;
+const SNAP_INTERVAL = CARD_WIDTH + CARD_GAP;
+// (windowWidth - CARD_WIDTH) / 2 is the handoff's own formula (45 on a
+// 390pt viewport). Below ~332pt wide that goes small; clamped to a 12pt
+// floor so the first card never starts far enough right to run off a
+// narrow viewport — see the report for the exact numbers this protects.
+const CARD_INSET = Math.max(12, (windowWidth - CARD_WIDTH) / 2);
+const ZIGZAG_TOOTH = 12;
+const ZIGZAG_HEIGHT = 8;
+const DOT_SIZE = 7;
+const DOT_ACTIVE_WIDTH = 22;
+// (44 - DOT_SIZE) / 2, rounded up — same "grow a small hit target to the
+// 44pt minimum via hitSlop" pattern as MonthPicker's chevrons.
+const DOT_HIT_SLOP = 19;
 
 interface Slide {
   key: string;
@@ -155,6 +179,138 @@ async function finish() {
   router.replace("/");
 }
 
+// Repeating "l6 -8 l6 8" (or its mirror) tooth path from the handoff, built
+// once per direction rather than hand-written — CARD_WIDTH / ZIGZAG_TOOTH
+// is exactly 25, so the pattern tiles with no partial tooth at either edge.
+function zigzagPath(direction: "up" | "down"): string {
+  const half = ZIGZAG_TOOTH / 2;
+  const count = CARD_WIDTH / ZIGZAG_TOOTH;
+  const start = direction === "up" ? `M0 ${ZIGZAG_HEIGHT}` : "M0 0";
+  const step = direction === "up" ? ` l${half} -${ZIGZAG_HEIGHT} l${half} ${ZIGZAG_HEIGHT}` : ` l${half} ${ZIGZAG_HEIGHT} l${half} -${ZIGZAG_HEIGHT}`;
+  return start + step.repeat(count) + " Z";
+}
+
+const ZIGZAG_UP_PATH = zigzagPath("up");
+const ZIGZAG_DOWN_PATH = zigzagPath("down");
+
+/**
+ * The card's torn-paper top/bottom edge. Both start and end flush with the
+ * flat baseline (`ZIGZAG_HEIGHT`/`0`), so simply closing the path (`Z`)
+ * connects back along that baseline instead of needing an explicit
+ * trailing edge — no separate "fill down to baseline" segment required.
+ */
+function ZigzagEdge({ direction }: { direction: "up" | "down" }) {
+  return (
+    <Svg width={CARD_WIDTH} height={ZIGZAG_HEIGHT}>
+      <Path d={direction === "up" ? ZIGZAG_UP_PATH : ZIGZAG_DOWN_PATH} fill={tokens.color.paper} />
+    </Svg>
+  );
+}
+
+/**
+ * A 1.5px dashed rule. `borderStyle: "dashed"` is unreliable on Android at
+ * fractional (non-integer) border widths, so this uses `react-native-svg`
+ * (already a dependency) with `strokeDasharray` instead, which renders
+ * consistently on both platforms.
+ */
+function DashedDivider() {
+  return (
+    <Svg width="100%" height={2} style={styles.divider}>
+      <Line
+        x1="0"
+        y1="1"
+        x2="100%"
+        y2="1"
+        stroke={tokens.color.inkFaintDivider}
+        strokeWidth={1.5}
+        strokeDasharray="4,3"
+      />
+    </Svg>
+  );
+}
+
+const BARCODE_BARS = Array.from({ length: 26 });
+
+function Barcode() {
+  return (
+    <View style={styles.barcode}>
+      {BARCODE_BARS.map((_, i) => (
+        <View key={i} style={styles.barcodeBar} />
+      ))}
+    </View>
+  );
+}
+
+function ReceiptCard({
+  slide,
+  slideIndex,
+  total,
+  marginRight,
+}: {
+  slide: Slide;
+  slideIndex: number;
+  total: number;
+  marginRight: number;
+}) {
+  const { Icon, title, body } = slide;
+  return (
+    <View style={[styles.card, { marginRight }]}>
+      <ZigzagEdge direction="up" />
+      <View style={styles.cardBody}>
+        <Text style={styles.brand}>FİŞLİK</Text>
+        <DashedDivider />
+        <View style={styles.iconWrap}>
+          <Icon size={38} strokeWidth={2} color={tokens.color.primary} />
+        </View>
+        <Text style={styles.cardTitle}>{title}</Text>
+        <Text style={styles.cardBodyText}>{body}</Text>
+        <DashedDivider />
+        <View style={styles.metaRow}>
+          <Text style={styles.metaLabel}>ADIM</Text>
+          <Text style={styles.metaValue}>
+            {slideIndex + 1} / {total}
+          </Text>
+        </View>
+        <Barcode />
+      </View>
+      <ZigzagEdge direction="down" />
+    </View>
+  );
+}
+
+function Dot({
+  slideIndex,
+  active,
+  anim,
+  onPress,
+}: {
+  slideIndex: number;
+  active: boolean;
+  anim: Animated.Value;
+  onPress: () => void;
+}) {
+  const width = anim.interpolate({ inputRange: [0, 1], outputRange: [DOT_SIZE, DOT_ACTIVE_WIDTH] });
+  const backgroundColor = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [tokens.color.inkFaintDot, tokens.color.primary],
+  });
+  return (
+    <Pressable
+      testID={`tanitim-dot-${slideIndex}`}
+      accessibilityRole="button"
+      accessibilityLabel={`${slideIndex + 1}. slayt`}
+      accessibilityState={{ selected: active }}
+      hitSlop={{ top: DOT_HIT_SLOP, bottom: DOT_HIT_SLOP, left: DOT_HIT_SLOP, right: DOT_HIT_SLOP }}
+      onPress={onPress}
+    >
+      {/* `width` (and color) aren't native-drivable, so this animation runs
+          on the JS thread (`useNativeDriver: false` below) — passing `true`
+          here would throw at runtime. */}
+      <Animated.View style={[styles.dot, { width, backgroundColor }]} />
+    </Pressable>
+  );
+}
+
 /**
  * The four-slide post-login tour — role-aware, since an accountant and a
  * client use entirely different parts of the app. Lives at the app root
@@ -165,49 +321,112 @@ async function finish() {
  *
  * One route, not one screen per role group — a duplicated screen and a
  * tab-leaking route are two defects this branch has already had to fix.
+ *
+ * Rendered as a horizontally paged strip of "receipt card" slides
+ * (react-native-svg zigzag edges + a fake barcode), 300pt wide with 16pt
+ * gaps and neighbor-card peek, per the design handoff. All hooks are
+ * declared before the anon/loading/locked guards below, including the
+ * ones only meaningful once a role's slide set is known (`slides` falls
+ * back to `CLIENT_SLIDES` while `user` is still null) — the guards return
+ * different JSX per status, and a real `useAuth()` session does transition
+ * loading -> authed on the same mounted instance, so hook count must stay
+ * identical across every status.
  */
 export default function TanitimScreen() {
   const { status, user } = useAuth();
   const [index, setIndex] = useState(0);
   const listRef = useRef<FlatList<Slide>>(null);
+  const dotAnimsRef = useRef<Map<number, Animated.Value>>(new Map());
+  const mountedRef = useRef(false);
+
+  const slides = user ? slidesForRole(user.role) : CLIENT_SLIDES;
+  const isLast = index === slides.length - 1;
+
+  function dotAnim(i: number): Animated.Value {
+    let value = dotAnimsRef.current.get(i);
+    if (!value) {
+      value = new Animated.Value(i === index ? 1 : 0);
+      dotAnimsRef.current.set(i, value);
+    }
+    return value;
+  }
+
+  useEffect(() => {
+    // Skip the very first run: each Animated.Value is lazily created (in
+    // `dotAnim` above) already holding its correct 0/1 target for the
+    // initial `index`, so animating on mount would be a redundant
+    // 300ms no-op timer — and a real one, since these aren't
+    // native-driven, which is exactly the kind of leftover timer that
+    // trips RNTL's "not wrapped in act" warning after a test unmounts.
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+    slides.forEach((_, i) => {
+      Animated.timing(dotAnim(i), {
+        toValue: i === index ? 1 : 0,
+        duration: 300,
+        // `width` and `backgroundColor` are not native-drivable properties.
+        useNativeDriver: false,
+      }).start();
+    });
+    // dotAnim reads/writes a ref map and is stable in identity-of-effect
+    // terms; only `index`/slide count changes should re-run this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, slides.length]);
 
   if (status === "loading") return <Spinner />;
   if (status === "locked") return <LockedScreen />;
   if (status === "anon" || !user) return <Redirect href="/giris" />;
 
-  const slides = slidesForRole(user.role);
-  const isLast = index === slides.length - 1;
+  function goTo(target: number) {
+    const clamped = Math.max(0, Math.min(slides.length - 1, target));
+    setIndex(clamped);
+    listRef.current?.scrollToOffset({ offset: clamped * SNAP_INTERVAL, animated: true });
+  }
 
+  // Snap interval, not window width — a 300pt card + 16pt gap peeking its
+  // neighbors means a card's resting scroll offset is a multiple of 316,
+  // never a multiple of the screen width.
   function handleScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
-    const next = Math.round(e.nativeEvent.contentOffset.x / width);
-    if (next !== index) setIndex(next);
+    const next = Math.round(e.nativeEvent.contentOffset.x / SNAP_INTERVAL);
+    const clamped = Math.max(0, Math.min(slides.length - 1, next));
+    if (clamped !== index) setIndex(clamped);
   }
 
   return (
     <View style={styles.page}>
-      <FlatList
-        testID="tanitim-slides"
-        ref={listRef}
-        data={slides}
-        keyExtractor={(item) => item.key}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        onMomentumScrollEnd={handleScroll}
-        renderItem={({ item }) => (
-          <View style={[styles.slide, { width }]}>
-            <View style={styles.iconWrap}>
-              <item.Icon color={tokens.color.primary} size={40} />
-            </View>
-            <Text style={[text.title, styles.title]}>{item.title}</Text>
-            <Text style={[text.body, styles.body]}>{item.body}</Text>
-          </View>
-        )}
-      />
+      <View style={styles.header}>
+        <FislikMark width={16} height={23} />
+        <Text style={styles.wordmark}>Fişlik</Text>
+      </View>
+
+      <View style={styles.pagerWrap}>
+        <FlatList
+          testID="tanitim-slides"
+          ref={listRef}
+          data={slides}
+          keyExtractor={(item) => item.key}
+          horizontal
+          snapToInterval={SNAP_INTERVAL}
+          decelerationRate="fast"
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={handleScroll}
+          contentContainerStyle={{ paddingHorizontal: CARD_INSET }}
+          renderItem={({ item, index: i }) => (
+            <ReceiptCard
+              slide={item}
+              slideIndex={i}
+              total={slides.length}
+              marginRight={i === slides.length - 1 ? 0 : CARD_GAP}
+            />
+          )}
+        />
+      </View>
 
       <View style={styles.dots}>
         {slides.map((slide, i) => (
-          <View key={slide.key} style={[styles.dot, i === index && styles.dotActive]} />
+          <Dot key={slide.key} slideIndex={i} active={i === index} anim={dotAnim(i)} onPress={() => goTo(i)} />
         ))}
       </View>
 
@@ -215,47 +434,84 @@ export default function TanitimScreen() {
         <Text style={[text.label, styles.skip]} onPress={finish}>
           Geç
         </Text>
-        {isLast ? (
-          <Button title="Başla" onPress={finish} />
-        ) : (
-          <Button
-            title="İleri"
-            onPress={() => listRef.current?.scrollToIndex({ index: index + 1 })}
-          />
-        )}
+        <View style={styles.primaryBtn}>
+          {isLast ? (
+            <Button title="Başla" onPress={finish} />
+          ) : (
+            <Button title="İleri" onPress={() => goTo(index + 1)} />
+          )}
+        </View>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: tokens.color.surface },
-  slide: {
+  page: { flex: 1, backgroundColor: tokens.color.page },
+  header: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: tokens.space(7),
-    gap: tokens.space(3),
+    gap: 8,
+    paddingTop: 14,
+    paddingBottom: 4,
   },
-  iconWrap: {
-    width: 88,
-    height: 88,
-    borderRadius: tokens.radius.pill,
+  wordmark: {
+    fontFamily: font.extraBold,
+    fontSize: 16,
+    letterSpacing: -0.4,
+    color: tokens.color.ink,
+  },
+  pagerWrap: { flex: 1, justifyContent: "center" },
+  card: { width: CARD_WIDTH },
+  cardBody: {
+    backgroundColor: tokens.color.paper,
     alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: tokens.color.card,
-    borderWidth: 1,
-    borderColor: tokens.color.border,
+    gap: 13,
+    minHeight: 396,
+    paddingTop: 24,
+    paddingHorizontal: 26,
+    paddingBottom: 18,
+    // The zigzag edges are their own tiny SVG shapes; giving the shadow to
+    // this rectangular body instead of the whole card (top+body+bottom) is
+    // the handoff's explicit fallback when a shadow following the zigzag
+    // silhouette isn't feasible.
+    shadowColor: tokens.color.ink,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.1,
+    shadowRadius: 11,
+    elevation: 6,
   },
-  title: { color: tokens.color.ink, textAlign: "center" },
-  body: { color: tokens.color.inkSoft, textAlign: "center" },
-  dots: { flexDirection: "row", justifyContent: "center", gap: tokens.space(1.5) },
-  dot: {
-    width: 7,
-    height: 7,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.color.border,
+  divider: { alignSelf: "stretch" },
+  brand: {
+    fontFamily: font.extraBold,
+    fontSize: 11,
+    letterSpacing: 3,
+    color: tokens.color.primary,
   },
-  dotActive: { backgroundColor: tokens.color.primary },
+  iconWrap: { paddingTop: 8 },
+  cardTitle: {
+    fontFamily: font.bold,
+    fontSize: 20,
+    letterSpacing: -0.4,
+    color: tokens.color.ink,
+    textAlign: "center",
+  },
+  cardBodyText: {
+    fontFamily: font.regular,
+    fontSize: 14,
+    lineHeight: 22,
+    color: tokens.color.inkSoft,
+    textAlign: "center",
+    flex: 1,
+  },
+  metaRow: { flexDirection: "row", justifyContent: "space-between", alignSelf: "stretch" },
+  metaLabel: { fontFamily: font.medium, fontSize: 11.5, color: tokens.color.inkSoft },
+  metaValue: { fontFamily: font.bold, fontSize: 11.5, color: tokens.color.ink },
+  barcode: { width: 130, height: 24, flexDirection: "row", alignItems: "center", gap: 3, opacity: 0.6 },
+  barcodeBar: { width: 2, height: 24, backgroundColor: tokens.color.ink },
+  dots: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, paddingVertical: 16 },
+  dot: { height: DOT_SIZE, borderRadius: tokens.radius.pill },
   footer: {
     flexDirection: "row",
     alignItems: "center",
@@ -265,4 +521,5 @@ const styles = StyleSheet.create({
     gap: tokens.space(3),
   },
   skip: { color: tokens.color.inkSoft, padding: tokens.space(2) },
+  primaryBtn: { minWidth: 132 },
 });

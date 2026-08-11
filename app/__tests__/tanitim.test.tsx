@@ -1,9 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Redirect } from "expo-router";
-import { Dimensions } from "react-native";
 import TanitimScreen from "../tanitim";
 
-const { width } = Dimensions.get("window");
+// Card pager snap interval (300pt card + 16pt gap) — see app/tanitim.tsx.
+// The pager's index tracking must divide by this, not by window width, so
+// tests that simulate a scroll drive the offset off this constant.
+const SNAP_INTERVAL = 316;
 
 const mockReplace = jest.fn();
 jest.mock("expo-router", () => ({
@@ -95,11 +97,41 @@ test("the last slide shows Başla instead of İleri, and still shows Geç, for e
   const list = screen.getByTestId("tanitim-slides");
   // Land on the fourth (last) slide by simulating the paging scroll a real
   // swipe would produce, rather than asserting against the component's own
-  // index math.
+  // index math. Offset is a multiple of the 316pt snap interval, not of
+  // window width — see SNAP_INTERVAL above.
   fireEvent(list, "momentumScrollEnd", {
-    nativeEvent: { contentOffset: { x: 3 * width } },
+    nativeEvent: { contentOffset: { x: 3 * SNAP_INTERVAL } },
   });
 
+  expect(screen.getByText("Başla")).toBeOnTheScreen();
+  expect(screen.queryByText("İleri")).not.toBeOnTheScreen();
+  expect(screen.getByText("Geç")).toBeOnTheScreen();
+});
+
+test("the visible slide is derived from the 316pt snap interval, not from window width", () => {
+  // In this jest environment Dimensions.get("window").width is 750 — a
+  // scroll offset of 632 is exactly 2 card-intervals (2 * 316) but is NOT
+  // a clean multiple of 750. A component that (wrongly) divided by window
+  // width would round 632 / 750 ≈ 0.84 down to slide 1, not 2 — this test
+  // pins the correct divisor.
+  mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
+  render(<TanitimScreen />);
+  const list = screen.getByTestId("tanitim-slides");
+  fireEvent(list, "momentumScrollEnd", {
+    nativeEvent: { contentOffset: { x: 2 * SNAP_INTERVAL } },
+  });
+
+  expect(screen.getByTestId("tanitim-dot-2").props.accessibilityState).toEqual({ selected: true });
+  expect(screen.getByTestId("tanitim-dot-1").props.accessibilityState).toEqual({ selected: false });
+});
+
+test("tapping a dot jumps straight to that slide", () => {
+  mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role: "client" } });
+  render(<TanitimScreen />);
+
+  fireEvent.press(screen.getByTestId("tanitim-dot-3"));
+
+  expect(screen.getByTestId("tanitim-dot-3").props.accessibilityState).toEqual({ selected: true });
   expect(screen.getByText("Başla")).toBeOnTheScreen();
   expect(screen.queryByText("İleri")).not.toBeOnTheScreen();
   expect(screen.getByText("Geç")).toBeOnTheScreen();
