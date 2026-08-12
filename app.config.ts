@@ -11,7 +11,16 @@ const config: ExpoConfig = {
   ios: {
     bundleIdentifier: "dev.selamet.fislik",
     supportsTablet: false,
-    associatedDomains: ["applinks:fislik.selamet.dev"],
+    // Deep links. A free personal Apple team cannot provision the
+    // Associated Domains capability, so leaving this in makes
+    // `expo run:ios --device` fail signing on a personally-signed device
+    // build with "Personal development teams ... do not support the
+    // Associated Domains capability". Set EXPO_LOCAL_DEVICE_BUILD=1 for
+    // those local builds; EAS builds leave it unset and keep the
+    // capability, so shipped apps still open deep links.
+    ...(process.env.EXPO_LOCAL_DEVICE_BUILD
+      ? null
+      : { associatedDomains: ["applinks:fislik.selamet.dev"] }),
     infoPlist: {
       NSFaceIDUsageDescription:
         "Fişlik'i Face ID ile hızlıca açabilmeniz için kullanılır.",
