@@ -2,10 +2,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Images, Paperclip, X } from "lucide-react-native";
 import { useRef, useState } from "react";
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { captureToQueue, pickDocument, pickFromLibrary } from "@/src/upload/capture";
 import { invalidateAfterUpload } from "@/src/upload/invalidateAfterUpload";
-import type { QueueRecord } from "@/src/upload/queue";
+import { removeRecord, type QueueRecord } from "@/src/upload/queue";
 import type { UploadedHandler } from "@/src/upload/worker";
 import { Button } from "@/src/theme/components/Button";
 import { EmptyState } from "@/src/theme/components/EmptyState";
@@ -14,10 +14,22 @@ import { tokens } from "@/src/theme/tokens";
 import { text } from "@/src/theme/typography";
 
 /**
- * Burst capture: the shutter stays live between shots so the user can shoot
- * several receipts in a row and walk away — captureToQueue persists and
- * enqueues each shot in the background (see src/upload/capture.ts), the
- * screen never blocks on an upload finishing.
+ * A capture is confirmed with the receipt itself, not a counter: taking a
+ * photo shows it full-screen with "Bir tane daha çek" / "Sil" / "Bitti", so
+ * the user sees the shot succeeded instead of guessing from a digit in the
+ * corner. "Bir tane daha çek" switches into burst mode — the old
+ * behaviour, shutter stays live for rapid consecutive shots, each one
+ * enqueued without stopping for confirmation — because someone who has
+ * explicitly asked for speed doesn't want to stop at every frame. In burst
+ * mode (and for gallery/PDF picks, which the OS picker already confirms on
+ * its own) the corner pill is replaced by a strip of thumbnails.
+ *
+ * `captureToQueue` enqueues a shot the instant it's taken (see
+ * src/upload/capture.ts) — the confirmation screen is shown *after* that,
+ * so "Sil" has to actively undo the enqueue via `removeRecord` from
+ * `src/upload/queue.ts` — the same discard path `useUploadQueue.ts` exposes
+ * as `discard` for the queued-receipt cards — not just remove the shot from
+ * local state.
  *
  * Shared by two routes: `app/(client)/kamera.tsx` (a client's own capture,
  * always the current month, no `clientId`) and
@@ -43,6 +55,14 @@ export function CaptureScreen({
 }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [shots, setShots] = useState<QueueRecord[]>([]);
+  // The shot awaiting confirmation ("Bir tane daha çek" / "Sil" / "Bitti").
+  // Only ever set by a single-shot camera capture — burst-mode shots and
+  // gallery/PDF picks go straight into `shots` without pausing here.
+  const [pendingShot, setPendingShot] = useState<QueueRecord | null>(null);
+  // Once true (via "Bir tane daha çek"), the shutter stays live for
+  // consecutive shots and never shows the confirmation screen again this
+  // session.
+  const [burst, setBurst] = useState(false);
   const [busy, setBusy] = useState(false);
   const cameraRef = useRef<CameraView>(null);
   const queryClient = useQueryClient();
@@ -83,6 +103,7 @@ export function CaptureScreen({
       if (photo) {
         const record = await captureToQueue(photo.uri, period, clientId, onUploaded);
         setShots((prev) => [...prev, record]);
+        if (!burst) setPendingShot(record);
       }
     } finally {
       setBusy(false);
@@ -111,9 +132,58 @@ export function CaptureScreen({
     }
   }
 
+  function handleAnotherShot() {
+    setBurst(true);
+    setPendingShot(null);
+  }
+
+  async function handleDiscard() {
+    if (!pendingShot || busy) return;
+    setBusy(true);
+    try {
+      await removeRecord(pendingShot.id);
+      const discardedId = pendingShot.id;
+      setShots((prev) => prev.filter((s) => s.id !== discardedId));
+      setPendingShot(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (pendingShot) {
+    return (
+      <View style={styles.container}>
+        <Image
+          source={{ uri: pendingShot.localUri }}
+          style={StyleSheet.absoluteFill}
+          resizeMode="contain"
+        />
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Kapat"
+          style={styles.close}
+          hitSlop={{ top: 2, bottom: 2, left: 2, right: 2 }}
+          onPress={onClose}
+        >
+          <X color={tokens.color.onPrimary} size={24} />
+        </Pressable>
+
+        <View style={styles.confirmActions}>
+          <Button title="Bir tane daha çek" variant="secondary" onPress={handleAnotherShot} disabled={busy} />
+          <Button title="Sil" variant="danger" onPress={() => void handleDiscard()} disabled={busy} />
+          <Button title="Bitti" onPress={onClose} disabled={busy} />
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
+
+      {/* Purely visual guidance for aligning the receipt — constrains and triggers nothing. */}
+      <View pointerEvents="none" style={styles.frameGuide} />
 
       <Pressable
         accessibilityRole="button"
@@ -134,13 +204,13 @@ export function CaptureScreen({
       ) : null}
 
       <View style={styles.bottomBar}>
-        <View style={styles.thumbStrip}>
-          {shots.length > 0 ? (
-            <View style={styles.thumbCount}>
-              <Text style={[text.label, styles.thumbCountText]}>{shots.length}</Text>
-            </View>
-          ) : null}
-        </View>
+        {shots.length > 0 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.thumbStrip}>
+            {shots.map((shot) => (
+              <Image key={shot.id} source={{ uri: shot.localUri }} style={styles.thumb} />
+            ))}
+          </ScrollView>
+        ) : null}
 
         <View style={styles.shutterRow}>
           <Pressable
@@ -194,6 +264,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  frameGuide: {
+    position: "absolute",
+    top: "22%",
+    bottom: "30%",
+    left: tokens.space(8),
+    right: tokens.space(8),
+    borderWidth: 2,
+    borderColor: tokens.color.viewfinderGuide,
+    borderRadius: tokens.radius.lg,
+  },
   onBehalfBanner: {
     position: "absolute",
     top: tokens.space(4),
@@ -217,16 +297,14 @@ const styles = StyleSheet.create({
     paddingTop: tokens.space(4),
     gap: tokens.space(3),
   },
-  thumbStrip: { minHeight: 32, flexDirection: "row", alignItems: "center" },
-  thumbCount: {
-    width: 32,
-    height: 32,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: tokens.color.primary,
-    alignItems: "center",
-    justifyContent: "center",
+  thumbStrip: { maxHeight: 56 },
+  thumb: {
+    width: 44,
+    height: 44,
+    borderRadius: tokens.radius.md,
+    marginRight: tokens.space(2),
+    backgroundColor: tokens.color.surface,
   },
-  thumbCountText: { color: tokens.color.onPrimary },
   shutterRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sideAction: {
     width: 44,
@@ -254,4 +332,15 @@ const styles = StyleSheet.create({
     backgroundColor: tokens.color.primary,
   },
   finishText: { color: tokens.color.onPrimary },
+  confirmActions: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: tokens.space(5),
+    paddingBottom: tokens.space(8),
+    paddingTop: tokens.space(4),
+    gap: tokens.space(2.5),
+    backgroundColor: tokens.color.scrim,
+  },
 });
