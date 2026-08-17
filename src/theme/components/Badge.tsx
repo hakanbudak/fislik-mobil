@@ -5,7 +5,7 @@ import { text } from "../typography";
 type Tone = "success" | "warning" | "neutral";
 // "solid" (default): a translucent tone-tinted pill with tone-coloured text,
 // meant to sit on a solid card/panel background — e.g. the accountant's
-// analysis-credit badge (app/(accountant)/mukellef/[clientId].tsx).
+// analysis-credit badge (app/(accountant)/(mukellefler)/mukellef/[clientId].tsx).
 // "onImage": an opaque tone-filled pill with light text, for badges placed
 // over a photograph (ReceiptCard's stack). Over a receipt photo — usually
 // white/near-white paper — the translucent tint nearly disappears and

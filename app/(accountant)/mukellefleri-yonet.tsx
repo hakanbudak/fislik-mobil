@@ -14,7 +14,7 @@ import { text } from "@/src/theme/typography";
 
 /**
  * "Mükellefleri yönet" — the accountant's active-grant management page,
- * reached from the "Mükellefleri yönet" entry on `app/(accountant)/index.tsx`.
+ * reached from the "Mükellefleri yönet" entry on `app/(accountant)/(mukellefler)/index.tsx`.
  *
  * This is where the revoke control (`GrantCard`'s "Erişimi iptal et") now
  * lives for the accountant role. It used to sit on the Mükellefler screen

@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { router, Tabs } from "expo-router";
-import { act, renderRouter, screen, waitFor } from "expo-router/testing-library";
+import { act, fireEvent, renderRouter, screen, waitFor } from "expo-router/testing-library";
 import { Text } from "react-native";
-import ReceiptStackLayout from "../fis/_layout";
-import ReceiptDetailScreen from "../fis/[id]";
+import ReceiptsStackLayout from "../(fisler)/_layout";
+import ReceiptDetailScreen from "../(fisler)/fis/[id]";
 import * as endpoints from "@/src/api/endpoints";
 import type { ReceiptOut } from "@/src/api/endpoints";
 import { createTestQueryClient } from "@/src/test/queryClient";
@@ -19,17 +19,21 @@ const mocked = endpoints as jest.Mocked<typeof endpoints>;
 
 /**
  * Drives real expo-router navigation (not the `jest.mock("expo-router", ...)`
- * stub `fis.test.tsx` uses) between two receipt ids in sequence, because the
- * bug this pins only appears on the SECOND navigation.
+ * stub `fis.test.tsx` uses), because both bugs pinned here only appear on a
+ * SECOND navigation.
  *
- * Note what is and isn't real here: `fis/_layout` and `fis/[id]` are the
- * app's own files; the group `_layout` is a stand-in `<Tabs>` (the real one
- * pulls in `AuthGate`, fonts and the notification poller, none of which this
- * test is about) that reproduces the one property that matters — the
- * receipt-detail subtree is reached through a tab screen. Point
- * `"fis/[id]"` straight at `ReceiptDetailScreen` and drop the `fis/_layout`
- * entry below and both tests here fail, which is exactly the pre-fix
- * structure.
+ * Note what is and isn't real: `(fisler)/_layout` and `(fisler)/fis/[id]` are
+ * the app's own files; the group `_layout`, the list screen and the second
+ * tab are stand-ins (the real ones pull in `AuthGate`, fonts, the upload
+ * queue and the notification poller, none of which this test is about). What
+ * they preserve is the shape that matters: the receipt detail is pushed onto
+ * a stack ROOTED AT THE LIST, inside one tab, with a sibling tab to switch
+ * away to.
+ *
+ * Two structures fail these tests, and they are the two the app has actually
+ * shipped. Point `"fis/[id]"` straight at a tab screen with no stack and the
+ * editor never re-mounts (test 1). Give the detail a stack under its own
+ * list-less tab and back never pops it (tests 2 and 3).
  */
 const extraction: NonNullable<ReceiptOut["extraction"]> = {
   status: "done",
@@ -79,13 +83,14 @@ function renderApp() {
     {
       _layout: () => (
         <Tabs>
-          <Tabs.Screen name="index" />
-          <Tabs.Screen name="fis" options={{ href: null }} />
+          <Tabs.Screen name="(fisler)" />
+          <Tabs.Screen name="profil" />
         </Tabs>
       ),
-      index: () => <Text>Fişler</Text>,
-      "fis/_layout": ReceiptStackLayout,
-      "fis/[id]": ReceiptDetailScreen,
+      profil: () => <Text>Profil</Text>,
+      "(fisler)/_layout": ReceiptsStackLayout,
+      "(fisler)/index": () => <Text>Fişler</Text>,
+      "(fisler)/fis/[id]": ReceiptDetailScreen,
     },
     {
       initialUrl: "/",
@@ -116,28 +121,71 @@ test("opening a second receipt shows that receipt, not the one opened before it"
   expect(screen.getByLabelText("Toplam").props.value).toBe("125,50");
 
   openReceipt("r2");
-  // The editor is seeded once per mount from the receipt it was mounted
-  // with. When `fis/[id]` was a flat tab screen the route params updated but
-  // the screen never re-mounted, so these still read "Migros"/"125,50" — the
-  // previously-opened receipt — while the save/delete/period mutations
-  // targeted r2. Inside a `Stack` the push mounts a fresh screen instead.
+  // Two independent layers hold this up now: the stack mounts a fresh screen
+  // per push, and `ExtractionEditor` re-seeds its draft when `receiptId`
+  // changes. Either alone makes this assertion pass — the next test is the
+  // one that pins the mount itself, which the editor guard cannot mask.
   await waitFor(() => expect(screen.getByLabelText("Satıcı").props.value).toBe("Şok Market"));
   expect(screen.getByLabelText("Toplam").props.value).toBe("42,00");
 });
 
-test("going back from a receipt returns to the receipt it was opened from", async () => {
-  renderApp();
+test("back from a receipt returns to the list, and the detail stack never accumulates", async () => {
+  const { getPathname } = renderApp();
+
+  // Visiting three receipts in a row must leave the list exactly one back
+  // press away every time. When the detail lived in its own list-less tab,
+  // back from the second receipt landed on the first one instead — every
+  // receipt visited stacked up.
+  for (const [id, merchant] of [
+    ["r1", "Migros"],
+    ["r2", "Şok Market"],
+    ["r1", "Migros"],
+  ] as const) {
+    openReceipt(id);
+    await waitFor(() => expect(screen.getByLabelText("Satıcı").props.value).toBe(merchant));
+    act(() => router.back());
+    await waitFor(() => expect(screen.getByText("Fişler")).toBeOnTheScreen());
+    expect(getPathname()).toBe("/");
+  }
+});
+
+test("back still returns to the list after switching tabs in between", async () => {
+  const { getPathname } = renderApp();
 
   openReceipt("r1");
   await waitFor(() => expect(screen.getByLabelText("Satıcı").props.value).toBe("Migros"));
+  act(() => router.back());
+  await waitFor(() => expect(screen.getByText("Fişler")).toBeOnTheScreen());
+
+  act(() => router.push("/profil"));
+  await waitFor(() => expect(screen.getByText("Profil")).toBeOnTheScreen());
+
   openReceipt("r2");
   await waitFor(() => expect(screen.getByLabelText("Satıcı").props.value).toBe("Şok Market"));
-
   act(() => router.back());
-  // A flat tab screen has no history of its own: this popped straight out to
-  // the list. The stack pops receipt by receipt.
-  await waitFor(() => expect(screen.getByLabelText("Satıcı").props.value).toBe("Migros"));
+  await waitFor(() => expect(screen.getByText("Fişler")).toBeOnTheScreen());
+  expect(getPathname()).toBe("/");
+});
+
+test("each receipt gets a freshly mounted screen, not a reused one", async () => {
+  renderApp();
+
+  // Screen-owned state, not editor-owned: `confirmingDelete` lives in
+  // `fis/[id].tsx` and only a re-mount can clear it. If the detail screen
+  // were reused — as it was when registered as a flat tab — r2 would open
+  // with r1's delete confirmation still showing, and the "Sil" button would
+  // be wired to r2. This is the check `ExtractionEditor`'s own `receiptId`
+  // guard cannot stand in for.
+  openReceipt("r1");
+  await waitFor(() => expect(screen.getByText("Fişi sil")).toBeOnTheScreen());
+  fireEvent.press(screen.getByText("Fişi sil"));
+  expect(screen.getByText("Bu fiş silinecek. Emin misiniz?")).toBeOnTheScreen();
 
   act(() => router.back());
   await waitFor(() => expect(screen.getByText("Fişler")).toBeOnTheScreen());
+
+  openReceipt("r2");
+  await waitFor(() => expect(screen.getByLabelText("Satıcı").props.value).toBe("Şok Market"));
+  expect(screen.queryByText("Bu fiş silinecek. Emin misiniz?")).toBeNull();
+  expect(mocked.deleteReceipt).not.toHaveBeenCalled();
 });

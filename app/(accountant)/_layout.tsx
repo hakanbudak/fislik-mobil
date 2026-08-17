@@ -19,13 +19,13 @@ import { font, text } from "@/src/theme/typography";
  * whichever element ends up topmost (the banner when impersonating, the
  * header otherwise) clears the status bar/Dynamic Island.
  *
- * The per-client subtree (`mukellef/[clientId]` and everything below it) is
- * reachable but not a tab of its own, so it carries `href: null`. It
- * registers here as a single `mukellef` entry because `mukellef/_layout.tsx`
- * exists: expo-router hoists routes into the nearest ancestor `_layout` (see
- * `getRoutesCore.js`), and that file is now the nearest one, so the subtree
- * stops at it instead of reaching this navigator. That `Stack` is load-bearing
- * — see its docstring for the wrong-receipt bug three flat tab screens caused.
+ * The first tab is the `(mukellefler)` GROUP, not a bare `index` screen: that
+ * group is a `Stack` holding the client list and, pushed above it, the whole
+ * per-client subtree (month screen, its camera, receipt detail). None of
+ * those appear here as tabs of their own — see `(mukellefler)/_layout.tsx`
+ * for the two bugs that caused. `(mukellefler)` is a group, so it contributes
+ * no URL segment: the client list is still `/` and a receipt is still
+ * `/mukellef/{clientId}/fis/{id}`.
  *
  * `mukellefleri-yonet` is the same story without the hoisting: a real,
  * reachable route (the active-grant management page linked from the
@@ -62,7 +62,7 @@ export default function AccountantTabsLayout() {
           }}
         >
           <Tabs.Screen
-            name="index"
+            name="(mukellefler)"
             options={{
               title: "Mükellefler",
               tabBarIcon: ({ color }) => <Users color={color} size={21} strokeWidth={1.9} />,
@@ -82,7 +82,6 @@ export default function AccountantTabsLayout() {
               tabBarIcon: ({ color }) => <User color={color} size={21} strokeWidth={1.9} />,
             }}
           />
-          <Tabs.Screen name="mukellef" options={{ href: null }} />
           <Tabs.Screen name="mukellefleri-yonet" options={{ href: null }} />
           <Tabs.Screen name="yardim" options={{ href: null }} />
         </Tabs>

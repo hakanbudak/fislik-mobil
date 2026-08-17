@@ -317,8 +317,8 @@ export function ExtractionEditor({
   // of body contents, so that write is unrecoverable for that receipt. This
   // is not hypothetical: it shipped, via a receipt-detail screen registered
   // as a flat tab screen that updated its route params without ever
-  // re-mounting (fixed by `app/(client)/fis/_layout.tsx` and
-  // `app/(accountant)/mukellef/_layout.tsx`).
+  // re-mounting (fixed by `app/(client)/(fisler)/_layout.tsx` and
+  // `app/(accountant)/(mukellefler)/_layout.tsx`).
   //
   // That routing fix means nothing reaches this component stale today, but
   // it puts the only protection at the call sites. A `key={receipt.id}` there

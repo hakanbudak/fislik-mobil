@@ -23,8 +23,8 @@ import { Toast } from "@/src/theme/components/Toast";
 import { tokens } from "@/src/theme/tokens";
 
 /**
- * The accountant's "Fiş detayı" screen — the sibling of `app/(client)/fis/[id].tsx`,
- * closing the route `app/(accountant)/mukellef/[clientId].tsx` has pushed to
+ * The accountant's "Fiş detayı" screen — the sibling of `app/(client)/(fisler)/fis/[id].tsx`,
+ * closing the route `app/(accountant)/(mukellefler)/mukellef/[clientId].tsx` has pushed to
  * since Task 22 (`mukellef/[clientId]/fis/[id]`). Reuses the same
  * `ReceiptViewer`/`ExtractionEditor` pair the client's screen does, and adds
  * `IssueSection` — the accountant's side of Task 17's issue flag.
@@ -43,7 +43,7 @@ import { tokens } from "@/src/theme/tokens";
  *   correctness, not preference: `fislik-api/app/modules/issues/router.py`
  *   gates `resolve_issue` to `ClientUser` (plus an ownership check), so an
  *   accountant calling it always 403s. The client's own screen
- *   (`app/(client)/fis/[id].tsx`) owns the resolve action instead.
+ *   (`app/(client)/(fisler)/fis/[id].tsx`) owns the resolve action instead.
  */
 export default function ReceiptDetailScreen() {
   const { clientId, id, period: periodParam } = useLocalSearchParams<{
@@ -75,7 +75,7 @@ export default function ReceiptDetailScreen() {
   const retryMutation = useMutation({
     mutationFn: () => retryExtraction(id),
     onSuccess: invalidate,
-    // Same override as the client's screen (`app/(client)/fis/[id].tsx`):
+    // Same override as the client's screen (`app/(client)/(fisler)/fis/[id].tsx`):
     // a 409 here means this receipt was hand-edited, not that retry was
     // already attempted — the generic "Bu işlem zaten yapılmış." would say
     // the wrong thing.

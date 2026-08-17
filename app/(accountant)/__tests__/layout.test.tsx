@@ -37,16 +37,14 @@ function renderLayout() {
   );
 }
 
-const VISIBLE_ROUTES = ["index", "bildirimler", "profil"];
-// `mukellef` is ONE entry, not three: `app/(accountant)/mukellef/_layout.tsx`
-// (a `Stack`) owns `[clientId]`, `[clientId]/kamera` and `[clientId]/fis/[id]`
-// itself, so expo-router stops hoisting at it (see `getRoutesCore.js`: routes
-// are hoisted to the nearest ancestor `_layout`). Before that file existed all
-// three were flat tab screens — single persistent instances that never
-// re-mounted, which is what made the receipt-detail screen render the
-// previously-opened receipt's state. The exact names below are asserted
-// against expo-router's real `getRoutes()` output below, not just assumed.
-const HIDDEN_ROUTES = ["mukellef", "mukellefleri-yonet", "yardim"];
+const VISIBLE_ROUTES = ["(mukellefler)", "bildirimler", "profil"];
+// The whole per-client subtree — month screen, its camera, receipt detail —
+// is absent from BOTH lists: none of it is a tab any more, hidden or
+// otherwise. It lives inside the `(mukellefler)` group's stack, above the
+// client list. See `app/(accountant)/(mukellefler)/_layout.tsx` for the two
+// bugs its previous placements caused. The names below are asserted against
+// expo-router's real `getRoutes()` output, not assumed.
+const HIDDEN_ROUTES = ["mukellefleri-yonet", "yardim"];
 
 test("every route expo-router registers for this group is either an intended tab or hidden with href: null", () => {
   // Derived from the real on-disk files in `app/(accountant)/` via

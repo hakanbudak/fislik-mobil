@@ -16,7 +16,7 @@ import { text } from "@/src/theme/typography";
  *
  * Revoking is destructive and not obviously reversible, so it sits behind an
  * inline confirmation that names the counterpart, following the pattern
- * already used for receipt deletion (`app/(client)/fis/[id].tsx`) rather than
+ * already used for receipt deletion (`app/(client)/(fisler)/fis/[id].tsx`) rather than
  * a modal component this app doesn't otherwise have.
  */
 export function GrantCard({

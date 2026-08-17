@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import HomeScreen from "../index";
+import HomeScreen from "../(fisler)/index";
 import * as endpoints from "@/src/api/endpoints";
 import { currentPeriod, shiftPeriod } from "@/src/lib/period";
 import { createTestQueryClient } from "@/src/test/queryClient";

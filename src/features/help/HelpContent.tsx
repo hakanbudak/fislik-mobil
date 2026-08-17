@@ -14,7 +14,7 @@ interface HelpStep {
  * Describes what the user does and what happens as a result, not what the
  * buttons are called, so this page survives a label change — e.g. "the
  * month's receipts" rather than quoting "Muhasebeciye gönder" verbatim.
- * Mirrors the client home screen (`app/(client)/index.tsx`), the receipt
+ * Mirrors the client home screen (`app/(client)/(fisler)/index.tsx`), the receipt
  * detail screen's issue channel (`src/features/receipts/IssueSection.tsx`)
  * and `SubmissionRow`'s send/locked-month behaviour — there is no web
  * counterpart to port from.
@@ -38,8 +38,8 @@ const CLIENT_STEPS: HelpStep[] = [
   },
 ];
 
-/** See `CLIENT_STEPS`'s docstring. Mirrors `app/(accountant)/index.tsx`, the
- * per-client month screen (`app/(accountant)/mukellef/[clientId].tsx`) —
+/** See `CLIENT_STEPS`'s docstring. Mirrors `app/(accountant)/(mukellefler)/index.tsx`, the
+ * per-client month screen (`app/(accountant)/(mukellefler)/mukellef/[clientId].tsx`) —
  * mark-processed, month-locking, the ZIP export — and `GrantsSection`'s
  * accountant-side invite form.
  */

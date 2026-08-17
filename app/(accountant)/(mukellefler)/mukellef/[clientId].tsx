@@ -55,7 +55,7 @@ import type { QueueRecord } from "@/src/upload/queue";
  * (`AccountantClientsPage.tsx` navigates with `state: { fullName:
  * client.full_name, period }`), falling back to
  * `company?.trade_name ?? company?.full_name ?? "Mükellef"`. Expo Router has
- * no router-state equivalent, so `app/(accountant)/index.tsx` threads the
+ * no router-state equivalent, so `app/(accountant)/(mukellefler)/index.tsx` threads the
  * same name through as a `full_name` route param instead — this screen
  * prefers that param so the header paints the real name on first frame, no
  * flash, and only falls back to the company query's chain for a deep link

@@ -68,7 +68,7 @@ export function receiptsSummary(period: string, clientId?: string): Promise<Summ
 /**
  * The API does not block uploads into a locked month — it re-files them into
  * the next open one. Callers must reflect that (a notice, not a guard), see
- * `app/(client)/index.tsx`. This query itself must also fail soft: an API
+ * `app/(client)/(fisler)/index.tsx`. This query itself must also fail soft: an API
  * that predates the endpoint 404s, and that must read as "not locked" rather
  * than break the screen — see the 404 handling in the home screen's query.
  */

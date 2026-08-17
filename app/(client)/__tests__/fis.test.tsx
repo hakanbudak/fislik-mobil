@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import ReceiptDetailScreen from "../fis/[id]";
+import ReceiptDetailScreen from "../(fisler)/fis/[id]";
 import { ApiError } from "@/src/api/client";
 import * as endpoints from "@/src/api/endpoints";
 import type { ReceiptOut } from "@/src/api/endpoints";

@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import AccountantClientsScreen from "../index";
+import AccountantClientsScreen from "../(mukellefler)/index";
 import * as endpoints from "@/src/api/endpoints";
 import type { ClientSummaryOut, GrantOut } from "@/src/api/endpoints";
 import { createTestQueryClient } from "@/src/test/queryClient";

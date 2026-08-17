@@ -42,7 +42,7 @@ import { text } from "@/src/theme/typography";
  * gates `resolve_issue` to `ClientUser` (plus an ownership check), so this
  * is the only screen in the app that is allowed to call it; the
  * accountant's own receipt-detail screen
- * (`app/(accountant)/mukellef/[clientId]/fis/[id].tsx`) deliberately omits
+ * (`app/(accountant)/(mukellefler)/mukellef/[clientId]/fis/[id].tsx`) deliberately omits
  * it. `issueResolved` mirrors the web's own optimistic flag
  * (`ReceiptDetailPage.tsx`'s `issueResolved` state): it hides the card the
  * instant the mutation succeeds, without waiting on the `receipts`
@@ -50,7 +50,7 @@ import { text } from "@/src/theme/typography";
  *
  * There is no single-receipt API endpoint, so this screen locates the
  * receipt inside the `queryKeys.receipts(period)` list — the same query key
- * the home screen (`app/(client)/index.tsx`) already populates. When that
+ * the home screen (`app/(client)/(fisler)/index.tsx`) already populates. When that
  * cache is warm (the common case: tapped from `<ReceiptCard>`), `useQuery`
  * resolves instantly from cache; when it's cold (a deep link, or a cold
  * start straight onto this route), the same query call transparently
