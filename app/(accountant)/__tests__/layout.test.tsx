@@ -38,19 +38,15 @@ function renderLayout() {
 }
 
 const VISIBLE_ROUTES = ["index", "bildirimler", "profil"];
-// `app/(accountant)/mukellef/` has no `_layout.tsx` of its own, so
-// expo-router hoists every file under it into this group's own screen list
-// (see `getRoutesCore.js`: routes in a directory without `_layout` are
-// hoisted to the nearest one, named by their path relative to it). The
-// exact names below are asserted against expo-router's real `getRoutes()`
-// output below, not just assumed.
-const HIDDEN_ROUTES = [
-  "mukellef/[clientId]",
-  "mukellef/[clientId]/kamera",
-  "mukellef/[clientId]/fis/[id]",
-  "mukellefleri-yonet",
-  "yardim",
-];
+// `mukellef` is ONE entry, not three: `app/(accountant)/mukellef/_layout.tsx`
+// (a `Stack`) owns `[clientId]`, `[clientId]/kamera` and `[clientId]/fis/[id]`
+// itself, so expo-router stops hoisting at it (see `getRoutesCore.js`: routes
+// are hoisted to the nearest ancestor `_layout`). Before that file existed all
+// three were flat tab screens — single persistent instances that never
+// re-mounted, which is what made the receipt-detail screen render the
+// previously-opened receipt's state. The exact names below are asserted
+// against expo-router's real `getRoutes()` output below, not just assumed.
+const HIDDEN_ROUTES = ["mukellef", "mukellefleri-yonet", "yardim"];
 
 test("every route expo-router registers for this group is either an intended tab or hidden with href: null", () => {
   // Derived from the real on-disk files in `app/(accountant)/` via

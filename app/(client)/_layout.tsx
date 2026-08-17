@@ -24,11 +24,17 @@ const CAMERA_BUTTON_SIZE = 56;
  * element ends up topmost (the banner when impersonating, the header
  * otherwise) clears the status bar/Dynamic Island.
  *
- * `firma-bilgileri`, `fis/[id]` and `yardim` are real routes in this group
+ * `firma-bilgileri`, `fis` and `yardim` are real routes in this group
  * (reachable via `router.push`) but aren't destinations of their own — they
  * leaked into the bar as untitled placeholder tabs before this fix.
  * `href: null` is expo-router's documented way to keep a route registered
  * (so linking to it still works) while excluding it from the tab bar.
+ *
+ * `fis` is the whole receipt-detail subtree, not a single screen: it has its
+ * own `fis/_layout.tsx` (a `Stack`), so expo-router registers one `fis`
+ * entry here instead of hoisting `fis/[id]` in as a flat tab. That nesting
+ * is load-bearing, not cosmetic — see that file for the wrong-receipt bug a
+ * flat tab caused.
  *
  * `kamera` is registered as the middle (third) tab so the bar has five equal
  * slots and the raised camera button sits over the true centre one. Its
@@ -115,7 +121,7 @@ export default function ClientTabsLayout() {
             }}
           />
           <Tabs.Screen name="firma-bilgileri" options={{ href: null }} />
-          <Tabs.Screen name="fis/[id]" options={{ href: null }} />
+          <Tabs.Screen name="fis" options={{ href: null }} />
           <Tabs.Screen name="yardim" options={{ href: null }} />
         </Tabs>
         <View

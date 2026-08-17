@@ -51,7 +51,11 @@ function renderLayout() {
 }
 
 const VISIBLE_ROUTES = ["index", "muhasebecim", "kamera", "bildirimler", "profil"];
-const HIDDEN_ROUTES = ["firma-bilgileri", "fis/[id]", "yardim"];
+// `fis` is the receipt-detail subtree, registered as one entry because
+// `app/(client)/fis/_layout.tsx` (a `Stack`) owns `[id]` itself — not the
+// flat `fis/[id]` tab screen it used to be, which never re-mounted between
+// receipts. See that layout for the bug that caused.
+const HIDDEN_ROUTES = ["firma-bilgileri", "fis", "yardim"];
 
 test("every route expo-router registers for this group is either an intended tab or hidden with href: null", () => {
   // Derived from the real on-disk files in `app/(client)/` via expo-router's
@@ -96,7 +100,7 @@ test("registers kamera as the middle tab, with an empty non-interactive slot in 
   const screens = screen.UNSAFE_getAllByType(Tabs.Screen);
   const names = screens.map((s) => s.props.name);
   expect(names.indexOf("kamera")).toBe(2);
-  expect(names).toEqual(["index", "muhasebecim", "kamera", "bildirimler", "profil", "firma-bilgileri", "fis/[id]", "yardim"]);
+  expect(names).toEqual(["index", "muhasebecim", "kamera", "bildirimler", "profil", "firma-bilgileri", "fis", "yardim"]);
 
   // The reserved slot must render as an inert `View`, not a pressable
   // control — the tappable button lives in the overlay, not the bar.
