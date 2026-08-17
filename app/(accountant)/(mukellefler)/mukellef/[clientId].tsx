@@ -633,12 +633,13 @@ const styles = StyleSheet.create({
     left: tokens.space(3),
     right: tokens.space(3),
     // No `insets.bottom` added here (verified, not assumed): this screen is
-    // one of the accountant tab navigator's own screens (see the module
-    // docstring — `mukellef/[clientId]` is hoisted straight into
-    // `(accountant)/_layout.tsx`'s `<Tabs>` with `href: null`, not pushed
-    // as a separate stack screen over it), so the always-on tab bar stays
-    // mounted underneath and this screen's content area is sized to the
-    // space ABOVE it, not down to the physical screen edge. The tab bar
+    // pushed onto the `(mukellefler)` stack, which is itself nested INSIDE
+    // the accountant tab navigator (see `(mukellefler)/_layout.tsx`), so the
+    // always-on tab bar stays mounted underneath and this screen's content
+    // area is sized to the space ABOVE it, not down to the physical screen
+    // edge. What matters here is only that the tab bar is below this screen,
+    // which was true when it was a hoisted `href: null` tab screen and is
+    // still true now that it is a stack screen within a tab. The tab bar
     // itself already pads for `insets.bottom` (`paddingBottom:
     // tokens.space(2.5) + insets.bottom`, `_layout.tsx`), so this bar's
     // fixed offset already clears the home indicator without adding the

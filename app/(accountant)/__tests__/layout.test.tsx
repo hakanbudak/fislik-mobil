@@ -69,6 +69,24 @@ test("every route expo-router registers for this group is either an intended tab
   }
 });
 
+// The `(mukellefler)` group is a Stack, not a tab, so its own routes are
+// asserted separately: none of them may appear in this navigator's screen
+// list (three of them used to, as flat tabs), and the stack must hold the
+// client list plus the whole per-client subtree.
+test("the (mukellefler) stack owns the client list and the per-client subtree, and none of it leaks into the tab navigator", () => {
+  const stackRoutes = registeredRouteNames(path.join(__dirname, "..", "(mukellefler)"));
+  expect(new Set(stackRoutes)).toEqual(
+    new Set(["index", "mukellef/[clientId]", "mukellef/[clientId]/kamera", "mukellef/[clientId]/fis/[id]"]),
+  );
+
+  const registered = registeredRouteNames(path.join(__dirname, ".."));
+  expect(registered).toContain("(mukellefler)");
+  for (const stackRoute of stackRoutes) {
+    expect(registered).not.toContain(stackRoute);
+    expect(registered).not.toContain(`(mukellefler)/${stackRoute}`);
+  }
+});
+
 test("pads the outer view for the top inset and folds the bottom inset into the tab bar, so no content sits under the notch or the home indicator", () => {
   renderLayout();
   const outerView = screen.UNSAFE_getByType(View);

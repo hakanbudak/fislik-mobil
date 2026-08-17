@@ -35,6 +35,18 @@ import { Stack } from "expo-router";
  * chrome; the tab bar and `AppHeader` stay visible because this stack is
  * nested inside the tab navigator's `(fisler)` screen.
  */
+/**
+ * Puts the list beneath a receipt opened by DEEP LINK — a notification tap, or
+ * a cold start straight onto `/fis/{id}` — rather than leaving it as the only
+ * screen in the stack. Without this, `router.canGoBack()` is `false` there
+ * (measured), which makes "Geri dön" a dead button and, worse, makes the
+ * `router.back()` after a successful delete or month change a no-op that
+ * strands the user on a receipt that no longer exists or no longer belongs to
+ * this month. `fis/[id].tsx` also guards those calls itself; this is the
+ * layer that makes the ordinary back gesture work.
+ */
+export const unstable_settings = { initialRouteName: "index" };
+
 export default function ClientReceiptsStackLayout() {
   return <Stack screenOptions={{ headerShown: false }} />;
 }

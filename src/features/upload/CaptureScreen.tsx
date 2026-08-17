@@ -21,7 +21,7 @@ import { text } from "@/src/theme/typography";
  *
  * Shared by two routes: `app/(client)/kamera.tsx` (a client's own capture,
  * always the current month, no `clientId`) and
- * `app/(accountant)/mukellef/[clientId]/kamera.tsx` (an accountant capturing
+ * `app/(accountant)/(mukellefler)/mukellef/[clientId]/kamera.tsx` (an accountant capturing
  * on a client's behalf, Task 24 — `period` is whatever month that client's
  * screen currently has open, not necessarily the current one, since the
  * whole point is filing a shoebox of possibly-old receipts). One

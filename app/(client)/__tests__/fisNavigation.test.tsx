@@ -3,7 +3,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { router, Tabs } from "expo-router";
 import { act, fireEvent, renderRouter, screen, waitFor } from "expo-router/testing-library";
 import { Text } from "react-native";
-import ReceiptsStackLayout from "../(fisler)/_layout";
+import * as receiptsStackLayout from "../(fisler)/_layout";
 import ReceiptDetailScreen from "../(fisler)/fis/[id]";
 import * as endpoints from "@/src/api/endpoints";
 import type { ReceiptOut } from "@/src/api/endpoints";
@@ -77,7 +77,7 @@ const receipts: ReceiptOut[] = [
   },
 ];
 
-function renderApp() {
+function renderApp(initialUrl = "/") {
   const client = createTestQueryClient();
   return renderRouter(
     {
@@ -88,12 +88,12 @@ function renderApp() {
         </Tabs>
       ),
       profil: () => <Text>Profil</Text>,
-      "(fisler)/_layout": ReceiptsStackLayout,
+      "(fisler)/_layout": { ...receiptsStackLayout },
       "(fisler)/index": () => <Text>Fişler</Text>,
       "(fisler)/fis/[id]": ReceiptDetailScreen,
     },
     {
-      initialUrl: "/",
+      initialUrl,
       wrapper: ({ children }: { children: ReactNode }) => (
         <QueryClientProvider client={client}>{children}</QueryClientProvider>
       ),
@@ -188,4 +188,21 @@ test("each receipt gets a freshly mounted screen, not a reused one", async () =>
   await waitFor(() => expect(screen.getByLabelText("Satıcı").props.value).toBe("Şok Market"));
   expect(screen.queryByText("Bu fiş silinecek. Emin misiniz?")).toBeNull();
   expect(mocked.deleteReceipt).not.toHaveBeenCalled();
+});
+
+test("a receipt opened by deep link can still navigate back to the list", async () => {
+  // Cold start straight onto the receipt — a notification tap, or the app
+  // being launched from a link. Without `(fisler)/_layout.tsx`'s
+  // `initialRouteName` anchor the stack holds only this screen, so
+  // `canGoBack()` is false: "Geri dön" does nothing, and the `router.back()`
+  // after a successful delete or month change silently leaves the user on a
+  // receipt that no longer exists.
+  const { getPathname } = renderApp("/fis/r2?period=2026-08");
+  await waitFor(() => expect(screen.getByLabelText("Satıcı").props.value).toBe("Şok Market"));
+  expect(getPathname()).toBe("/fis/r2");
+  expect(router.canGoBack()).toBe(true);
+
+  act(() => router.back());
+  await waitFor(() => expect(screen.getByText("Fişler")).toBeOnTheScreen());
+  expect(getPathname()).toBe("/");
 });

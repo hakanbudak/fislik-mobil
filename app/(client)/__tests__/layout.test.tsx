@@ -82,6 +82,22 @@ test("every route expo-router registers for this group is either an intended tab
   }
 });
 
+// The `(fisler)` group is a Stack, not a tab, so its own routes are asserted
+// separately: they must NOT appear in this navigator's screen list (that was
+// the original bug — `fis/[id]` hoisted in as a flat tab), and the stack must
+// hold the list and the detail and nothing else.
+test("the (fisler) stack owns the list and the receipt detail, and neither leaks into the tab navigator", () => {
+  const stackRoutes = registeredRouteNames(path.join(__dirname, "..", "(fisler)"));
+  expect(new Set(stackRoutes)).toEqual(new Set(["index", "fis/[id]"]));
+
+  const registered = registeredRouteNames(path.join(__dirname, ".."));
+  expect(registered).toContain("(fisler)");
+  for (const stackRoute of stackRoutes) {
+    expect(registered).not.toContain(stackRoute);
+    expect(registered).not.toContain(`(fisler)/${stackRoute}`);
+  }
+});
+
 test("pads the outer view for the top inset and folds the bottom inset into the tab bar, so no content sits under the notch or the home indicator", () => {
   renderLayout();
   // The shell `View` is outermost, so it's first in the (pre-order) tree —

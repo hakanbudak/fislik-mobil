@@ -139,7 +139,7 @@ const CLIENT_SLIDES: Slide[] = [
  * Deliberately NOT a fifth "works offline" slide, unlike the client's: the
  * offline queue (`src/upload/useUploadQueue.ts`) does also serve the
  * accountant when they capture on a taxpayer's behalf
- * (`app/(accountant)/mukellef/[clientId]/kamera.tsx`, Task 24's shoebox
+ * (`app/(accountant)/(mukellefler)/mukellef/[clientId]/kamera.tsx`, Task 24's shoebox
  * flow), but that is an occasional, secondary action for this role, not
  * the daily habit it is for a client's own camera — the accountant's most
  * distinctive day-to-day loop is inviting/reviewing/closing/exporting, and

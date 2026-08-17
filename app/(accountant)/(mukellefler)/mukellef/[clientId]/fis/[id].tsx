@@ -121,7 +121,7 @@ export default function ReceiptDetailScreen() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Geri dön"
-          onPress={() => router.back()}
+          onPress={() => (router.canGoBack() ? router.back() : router.replace("/(accountant)"))}
           style={styles.iconButton}
         >
           <ArrowLeft size={18} color={tokens.color.inkSoft} />

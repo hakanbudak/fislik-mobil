@@ -3,7 +3,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { router, Tabs } from "expo-router";
 import { act, fireEvent, renderRouter, screen, waitFor } from "expo-router/testing-library";
 import { Text } from "react-native";
-import ClientsStackLayout from "../_layout";
+import * as clientsStackLayout from "../_layout";
 import ReceiptDetailScreen from "../mukellef/[clientId]/fis/[id]";
 import * as endpoints from "@/src/api/endpoints";
 import type { ReceiptOut } from "@/src/api/endpoints";
@@ -76,7 +76,7 @@ const receipts: ReceiptOut[] = [
   },
 ];
 
-function renderApp() {
+function renderApp(initialUrl = "/") {
   const client = createTestQueryClient();
   return renderRouter(
     {
@@ -87,13 +87,13 @@ function renderApp() {
         </Tabs>
       ),
       profil: () => <Text>Profil</Text>,
-      "(mukellefler)/_layout": ClientsStackLayout,
+      "(mukellefler)/_layout": { ...clientsStackLayout },
       "(mukellefler)/index": () => <Text>Mükellefler</Text>,
       "(mukellefler)/mukellef/[clientId]": () => <Text>Ağustos 2026</Text>,
       "(mukellefler)/mukellef/[clientId]/fis/[id]": ReceiptDetailScreen,
     },
     {
-      initialUrl: "/",
+      initialUrl,
       wrapper: ({ children }: { children: ReactNode }) => (
         <QueryClientProvider client={client}>{children}</QueryClientProvider>
       ),
@@ -174,4 +174,17 @@ test("each receipt gets a freshly mounted screen, not a reused one", async () =>
   await waitFor(() => expect(screen.getByLabelText("Satıcı").props.value).toBe("Şok Market"));
   expect(screen.queryByLabelText("Sorun mesajı")).toBeNull();
   expect(screen.getByText("Sorun bildir")).toBeOnTheScreen();
+});
+
+test("a receipt opened by deep link can still navigate back", async () => {
+  // See the client's counterpart. A stack has one anchor, so the client list
+  // — not the month, which was never visited — is what sits beneath a
+  // deep-linked receipt.
+  const { getPathname } = renderApp("/mukellef/c1/fis/r2?period=2026-08");
+  await waitFor(() => expect(screen.getByLabelText("Satıcı").props.value).toBe("Şok Market"));
+  expect(router.canGoBack()).toBe(true);
+
+  act(() => router.back());
+  await waitFor(() => expect(screen.getByText("Mükellefler")).toBeOnTheScreen());
+  expect(getPathname()).toBe("/");
 });

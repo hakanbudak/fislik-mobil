@@ -17,6 +17,20 @@ import { Stack } from "expo-router";
  * Headerless — every screen underneath draws its own back row — and nested
  * inside the tab navigator, so the tab bar and `AppHeader` stay visible.
  */
+/**
+ * Puts the client list beneath a month or receipt opened by DEEP LINK (a
+ * notification tap, or a cold start straight onto the URL), rather than
+ * leaving it as the only screen in the stack — without it `canGoBack()` is
+ * `false` there and every back affordance is dead. See
+ * `app/(client)/(fisler)/_layout.tsx`.
+ *
+ * A stack has one anchor, so a deep-linked RECEIPT backs out to the client
+ * list rather than to its month: the month was never visited, so there is no
+ * month to return to. Reached the ordinary way (list -> month -> receipt) the
+ * full chain is intact, since each step is a real push.
+ */
+export const unstable_settings = { initialRouteName: "index" };
+
 export default function AccountantClientsStackLayout() {
   return <Stack screenOptions={{ headerShown: false }} />;
 }

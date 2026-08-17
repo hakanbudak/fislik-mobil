@@ -107,6 +107,24 @@ export default function ReceiptDetailScreen() {
     queryClient.invalidateQueries({ queryKey: queryKeys.submission(p) });
   }
 
+  /**
+   * Leaves this receipt. Used both by "Geri dön" and — where it is not
+   * optional — after a delete or a month change, whose success makes this
+   * screen unrenderable: the receipt is gone, or no longer belongs to the
+   * month this screen was opened for.
+   *
+   * `router.back()` alone is a no-op when there is no history to pop, which
+   * would strand the user staring at a receipt that no longer exists.
+   * `(fisler)/_layout.tsx`'s `initialRouteName` anchor puts the list beneath
+   * even a deep-linked receipt, so that does not happen today — but a
+   * mutation whose success depends on routing configuration in another file
+   * staying put is a trap, and this fallback costs one line.
+   */
+  function leaveReceipt() {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(client)");
+  }
+
   const patchMutation = useMutation({
     mutationFn: (patch: ExtractionPatchIn) => patchExtraction(id, patch),
     onSuccess: () => invalidatePeriod(period),
@@ -130,7 +148,7 @@ export default function ReceiptDetailScreen() {
     mutationFn: () => deleteReceipt(id),
     onSuccess: () => {
       invalidatePeriod(period);
-      router.back();
+      leaveReceipt();
     },
     onError: (error) => setToast(apiErrorMessage(error)),
   });
@@ -140,7 +158,7 @@ export default function ReceiptDetailScreen() {
     onSuccess: (_updated, next) => {
       invalidatePeriod(period);
       invalidatePeriod(next);
-      router.back();
+      leaveReceipt();
     },
     onError: (error) => setToast(apiErrorMessage(error)),
   });
@@ -190,7 +208,7 @@ export default function ReceiptDetailScreen() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Geri dön"
-          onPress={() => router.back()}
+          onPress={leaveReceipt}
           style={styles.iconButton}
         >
           <ArrowLeft size={18} color={tokens.color.inkSoft} />
