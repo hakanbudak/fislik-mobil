@@ -107,19 +107,59 @@ export async function updateRecord(id: string, patch: Partial<QueueRecord>): Pro
   });
 }
 
+function deleteLocalFile(record: QueueRecord): void {
+  try {
+    const file = new File(record.localUri);
+    if (file.exists) file.delete();
+  } catch {
+    // Missing or already-deleted files must not block queue cleanup.
+  }
+}
+
 export async function removeRecord(id: string): Promise<void> {
   return synchronized(async () => {
     const records = await read();
     const record = records.find((r) => r.id === id);
-    if (record) {
-      try {
-        const file = new File(record.localUri);
-        if (file.exists) file.delete();
-      } catch {
-        // Missing or already-deleted files must not block queue cleanup.
-      }
-    }
+    if (record) deleteLocalFile(record);
     await write(records.filter((r) => r.id !== id));
+  });
+}
+
+export type DiscardOutcome = "removed" | "already-uploaded" | "in-progress";
+
+/**
+ * The status-aware counterpart to `removeRecord`, for a "Sil" offered at
+ * the instant of capture (`CaptureScreen.tsx`) rather than on a
+ * queued-receipt card encountered later. `captureToQueue` fires
+ * `drainOnce` immediately on enqueue, so by the time this runs the record
+ * may already be mid-upload or gone — `removeRecord` alone doesn't check,
+ * so calling it here could silently no-op on an already-uploaded record
+ * (nothing to delete, no error) or race a PUT that finishes anyway,
+ * leaving a receipt on the server the user believes they deleted.
+ *
+ * The status check and the removal happen inside the same `synchronized`
+ * task as every other queue mutation, so there is no window between
+ * "read the status" and "act on it" for a drain to slip through — unlike
+ * a caller doing its own `listQueue()` then `removeRecord()`, which would
+ * race exactly that.
+ *
+ * - Record gone (drain already completed and removed it): `"already-uploaded"`.
+ * - `status === "uploading"`: a PUT may already be in flight; there is no
+ *   way to abort or unsend it from here, so this is left alone and
+ *   reported as `"in-progress"` rather than claiming a cancellation that
+ *   can't be delivered.
+ * - Anything else (`"pending"`, or `"failed"` — no successful upload
+ *   happened): removed exactly like `removeRecord`.
+ */
+export async function discardIfSafe(id: string): Promise<DiscardOutcome> {
+  return synchronized(async () => {
+    const records = await read();
+    const record = records.find((r) => r.id === id);
+    if (!record) return "already-uploaded";
+    if (record.status === "uploading") return "in-progress";
+    deleteLocalFile(record);
+    await write(records.filter((r) => r.id !== id));
+    return "removed";
   });
 }
 

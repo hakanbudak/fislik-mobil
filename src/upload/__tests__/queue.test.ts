@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system";
 import {
   MAX_ATTEMPTS,
+  discardIfSafe,
   enqueue,
   listQueue,
   nextPending,
@@ -116,6 +117,37 @@ test("removeRecord deletes the local file", async () => {
   expect(mockedFileCtor).toHaveBeenCalledWith("file:///docs/a.jpg");
   expect(mockedFileDelete).toHaveBeenCalledTimes(1);
   await expect(listQueue()).resolves.toHaveLength(0);
+});
+
+// discardIfSafe is CaptureScreen's "Sil": offered at the instant of
+// capture, when a drain triggered by that same capture is far more likely
+// to have already grabbed the record than the queued-receipt cards'
+// removeRecord ever is (those only ever call it once a record has settled
+// into "failed"). It must not delete a record it can't prove is safe to
+// delete — asserted here directly against the persisted queue and the
+// file-system mock, not through any UI.
+test("discardIfSafe removes a still-pending record, same as removeRecord", async () => {
+  const record = await enqueue(input());
+  await expect(discardIfSafe(record.id)).resolves.toBe("removed");
+  expect(mockedFileDelete).toHaveBeenCalledTimes(1);
+  await expect(listQueue()).resolves.toHaveLength(0);
+});
+
+test("discardIfSafe reports already-uploaded and leaves the queue alone when the record is gone", async () => {
+  // Simulates the record having already been removed by a successful
+  // upload (uploader.ts's own removeRecord) before "Sil" was pressed.
+  await expect(discardIfSafe("never-enqueued")).resolves.toBe("already-uploaded");
+  expect(mockedFileDelete).not.toHaveBeenCalled();
+});
+
+test("discardIfSafe refuses to delete a record that is mid-upload", async () => {
+  const record = await enqueue(input());
+  await updateRecord(record.id, { status: "uploading" });
+  jest.clearAllMocks();
+
+  await expect(discardIfSafe(record.id)).resolves.toBe("in-progress");
+  expect(mockedFileDelete).not.toHaveBeenCalled();
+  await expect(listQueue()).resolves.toHaveLength(1);
 });
 
 test("subscribers are notified on every mutation", async () => {

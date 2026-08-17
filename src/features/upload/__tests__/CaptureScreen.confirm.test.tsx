@@ -23,7 +23,7 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 );
 jest.mock("@/src/upload/capture");
 jest.mock("@/src/upload/queue", () => ({
-  removeRecord: jest.fn(),
+  discardIfSafe: jest.fn(),
 }));
 
 const mockTakePictureAsync = jest.fn();
@@ -87,14 +87,53 @@ test("a single capture shows the full-screen confirmation instead of returning t
 
 test("Sil removes the record from the queue, not just the screen", async () => {
   mockedCapture.captureToQueue.mockResolvedValue(record({ id: "shot-42" }));
-  mockedQueue.removeRecord.mockResolvedValue(undefined);
+  mockedQueue.discardIfSafe.mockResolvedValue("removed");
   renderScreen();
 
   await pressShutter();
   fireEvent.press(screen.getByLabelText("Sil"));
 
-  await waitFor(() => expect(mockedQueue.removeRecord).toHaveBeenCalledWith("shot-42"));
+  await waitFor(() => expect(mockedQueue.discardIfSafe).toHaveBeenCalledWith("shot-42"));
   await waitFor(() => expect(screen.getByLabelText("Fotoğraf çek")).toBeOnTheScreen());
+});
+
+test("Sil tells the user the receipt was already sent instead of silently doing nothing", async () => {
+  mockedCapture.captureToQueue.mockResolvedValue(record({ id: "shot-1" }));
+  mockedQueue.discardIfSafe.mockResolvedValue("already-uploaded");
+  renderScreen();
+
+  await pressShutter();
+  fireEvent.press(screen.getByLabelText("Sil"));
+
+  await waitFor(() => expect(mockedQueue.discardIfSafe).toHaveBeenCalledWith("shot-1"));
+  expect(await screen.findByText("Bu fiş zaten gönderildi.")).toBeOnTheScreen();
+  // The confirmation screen stays up — nothing was silently removed.
+  expect(screen.getByLabelText("Bitti")).toBeOnTheScreen();
+});
+
+test("Sil does not claim a cancellation it can't deliver when the upload is already in flight", async () => {
+  mockedCapture.captureToQueue.mockResolvedValue(record({ id: "shot-1" }));
+  mockedQueue.discardIfSafe.mockResolvedValue("in-progress");
+  renderScreen();
+
+  await pressShutter();
+  fireEvent.press(screen.getByLabelText("Sil"));
+
+  await waitFor(() => expect(mockedQueue.discardIfSafe).toHaveBeenCalledWith("shot-1"));
+  expect(
+    await screen.findByText("Fiş şu anda yükleniyor, işlem bitmeden silinemez."),
+  ).toBeOnTheScreen();
+});
+
+test("Sil tells the user when the discard call itself fails, instead of dead-ending silently", async () => {
+  mockedCapture.captureToQueue.mockResolvedValue(record({ id: "shot-1" }));
+  mockedQueue.discardIfSafe.mockRejectedValue(new Error("network down"));
+  renderScreen();
+
+  await pressShutter();
+  fireEvent.press(screen.getByLabelText("Sil"));
+
+  expect(await screen.findByText("Fiş silinemedi, tekrar deneyin.")).toBeOnTheScreen();
 });
 
 test("Bir tane daha çek enters burst mode: live shutter, no confirmation on the next shot", async () => {

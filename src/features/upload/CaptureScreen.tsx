@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { captureToQueue, pickDocument, pickFromLibrary } from "@/src/upload/capture";
 import { invalidateAfterUpload } from "@/src/upload/invalidateAfterUpload";
-import { removeRecord, type QueueRecord } from "@/src/upload/queue";
+import { discardIfSafe, type QueueRecord } from "@/src/upload/queue";
 import type { UploadedHandler } from "@/src/upload/worker";
 import { Button } from "@/src/theme/components/Button";
 import { EmptyState } from "@/src/theme/components/EmptyState";
@@ -26,10 +26,14 @@ import { text } from "@/src/theme/typography";
  *
  * `captureToQueue` enqueues a shot the instant it's taken (see
  * src/upload/capture.ts) — the confirmation screen is shown *after* that,
- * so "Sil" has to actively undo the enqueue via `removeRecord` from
- * `src/upload/queue.ts` — the same discard path `useUploadQueue.ts` exposes
- * as `discard` for the queued-receipt cards — not just remove the shot from
- * local state.
+ * so "Sil" has to actively undo the enqueue, not just remove the shot from
+ * local state. It uses `discardIfSafe` from `src/upload/queue.ts` rather
+ * than the queued-receipt cards' plain `removeRecord` (`useUploadQueue.ts`'s
+ * `discard`): offered here, at the instant of capture, "Sil" is far more
+ * likely to land while the record is still mid-upload than it is on a
+ * card encountered later, and `removeRecord` doesn't check status before
+ * deleting — see `discardIfSafe`'s docstring for what that would silently
+ * get wrong.
  *
  * Shared by two routes: `app/(client)/kamera.tsx` (a client's own capture,
  * always the current month, no `clientId`) and
@@ -59,6 +63,10 @@ export function CaptureScreen({
   // Only ever set by a single-shot camera capture — burst-mode shots and
   // gallery/PDF picks go straight into `shots` without pausing here.
   const [pendingShot, setPendingShot] = useState<QueueRecord | null>(null);
+  // Set when "Sil" couldn't do what it looked like it did — the record was
+  // already uploaded, is mid-upload, or the discard call itself failed.
+  // Shown on the confirmation screen instead of silently doing nothing.
+  const [discardNotice, setDiscardNotice] = useState<string | null>(null);
   // Once true (via "Bir tane daha çek"), the shutter stays live for
   // consecutive shots and never shows the confirmation screen again this
   // session.
@@ -103,7 +111,10 @@ export function CaptureScreen({
       if (photo) {
         const record = await captureToQueue(photo.uri, period, clientId, onUploaded);
         setShots((prev) => [...prev, record]);
-        if (!burst) setPendingShot(record);
+        if (!burst) {
+          setDiscardNotice(null);
+          setPendingShot(record);
+        }
       }
     } finally {
       setBusy(false);
@@ -135,16 +146,26 @@ export function CaptureScreen({
   function handleAnotherShot() {
     setBurst(true);
     setPendingShot(null);
+    setDiscardNotice(null);
   }
 
   async function handleDiscard() {
     if (!pendingShot || busy) return;
     setBusy(true);
+    setDiscardNotice(null);
     try {
-      await removeRecord(pendingShot.id);
-      const discardedId = pendingShot.id;
-      setShots((prev) => prev.filter((s) => s.id !== discardedId));
-      setPendingShot(null);
+      const outcome = await discardIfSafe(pendingShot.id);
+      if (outcome === "removed") {
+        const discardedId = pendingShot.id;
+        setShots((prev) => prev.filter((s) => s.id !== discardedId));
+        setPendingShot(null);
+      } else if (outcome === "already-uploaded") {
+        setDiscardNotice("Bu fiş zaten gönderildi.");
+      } else {
+        setDiscardNotice("Fiş şu anda yükleniyor, işlem bitmeden silinemez.");
+      }
+    } catch {
+      setDiscardNotice("Fiş silinemedi, tekrar deneyin.");
     } finally {
       setBusy(false);
     }
@@ -170,6 +191,9 @@ export function CaptureScreen({
         </Pressable>
 
         <View style={styles.confirmActions}>
+          {discardNotice ? (
+            <Text style={[text.caption, styles.discardNoticeText]}>{discardNotice}</Text>
+          ) : null}
           <Button title="Bir tane daha çek" variant="secondary" onPress={handleAnotherShot} disabled={busy} />
           <Button title="Sil" variant="danger" onPress={() => void handleDiscard()} disabled={busy} />
           <Button title="Bitti" onPress={onClose} disabled={busy} />
@@ -343,4 +367,5 @@ const styles = StyleSheet.create({
     gap: tokens.space(2.5),
     backgroundColor: tokens.color.scrim,
   },
+  discardNoticeText: { color: tokens.color.onPrimary, textAlign: "center" },
 });
