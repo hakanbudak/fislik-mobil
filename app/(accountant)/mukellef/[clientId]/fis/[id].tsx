@@ -145,6 +145,7 @@ export default function ReceiptDetailScreen() {
           />
 
           <ExtractionEditor
+            receiptId={receipt.id}
             extraction={receipt.extraction ?? null}
             onSave={async (patch) => {
               await patchMutation.mutateAsync(patch);

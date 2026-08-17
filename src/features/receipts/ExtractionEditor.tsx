@@ -284,11 +284,18 @@ function CategoryField({
 }
 
 export function ExtractionEditor({
+  receiptId,
   extraction,
   onSave,
   onRetry,
   readOnly = false,
 }: {
+  /**
+   * The receipt this extraction belongs to. Used only to re-seed the draft
+   * below — the editor never sends it anywhere; the caller owns the API
+   * call. Required, deliberately: see the re-seed comment.
+   */
+  receiptId: string;
   extraction: ExtractionOut | null;
   onSave: (patch: ExtractionPatchIn) => void | Promise<void>;
   onRetry: () => void;
@@ -300,6 +307,41 @@ export function ExtractionEditor({
   const [taxIdError, setTaxIdError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [seededFor, setSeededFor] = useState(receiptId);
+
+  // `draft` is seeded ONCE, at mount, from the extraction this editor was
+  // first handed. If the same mounted editor is ever handed a different
+  // receipt, every field would keep showing the previous receipt's values
+  // while `onSave` patches the new one — and the API's PATCH stamps
+  // `edited_by` and flips a pending/failed extraction to `done` regardless
+  // of body contents, so that write is unrecoverable for that receipt. This
+  // is not hypothetical: it shipped, via a receipt-detail screen registered
+  // as a flat tab screen that updated its route params without ever
+  // re-mounting (fixed by `app/(client)/fis/_layout.tsx` and
+  // `app/(accountant)/mukellef/_layout.tsx`).
+  //
+  // That routing fix means nothing reaches this component stale today, but
+  // it puts the only protection at the call sites. A `key={receipt.id}` there
+  // would be the cheapest guard and is what a reviewer would reach for
+  // first — but `key` is invisible to the type checker, so deleting it in a
+  // refactor reintroduces silent data loss with no signal. A REQUIRED
+  // `receiptId` prop cannot be dropped without `tsc` failing, so the guard
+  // lives here instead. React's documented "adjusting state when a prop
+  // changes" pattern (set during render, no effect): React re-runs this
+  // render immediately with the new state and skips committing the stale
+  // one, so no wrong-receipt frame is ever painted.
+  //
+  // Validation/save errors belong to the draft being abandoned and are
+  // cleared with it. `saving` is not: it is owned by the in-flight
+  // `handleSave` and is cleared by its own `finally`.
+  if (seededFor !== receiptId) {
+    setSeededFor(receiptId);
+    setDraft(buildDraft(extraction));
+    setAmountError(null);
+    setDateError(null);
+    setTaxIdError(null);
+    setSaveError(null);
+  }
 
   function set<K extends keyof Draft>(key: K, value: Draft[K]) {
     setDraft((prev) => ({ ...prev, [key]: value }));

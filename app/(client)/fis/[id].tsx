@@ -235,6 +235,7 @@ export default function ReceiptDetailScreen() {
         ) : null}
 
         <ExtractionEditor
+          receiptId={receipt.id}
           extraction={receipt.extraction ?? null}
           readOnly={locked}
           onSave={async (patch) => {
