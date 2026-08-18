@@ -75,6 +75,36 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return <CrashScreen error={error} retry={retry} />;
 }
 
+/**
+ * Anchors the ROOT navigator at `app/index.tsx`, the app's entry route.
+ *
+ * This is not a nicety — without it a signed-in client lands in the
+ * ACCOUNTANT shell and every screen 403s. Three routes resolve to the bare
+ * path `/`: this `index`, `(client)/(fisler)/index` and
+ * `(accountant)/(mukellefler)/index` (both list screens sit inside route
+ * groups, which contribute no URL segment). That ambiguity was harmless
+ * until `(fisler)`/`(mukellefler)` started exporting their own
+ * `unstable_settings` anchors: expo-router copies a layout's anchor into the
+ * React Navigation LINKING config (`getReactNavigationConfig.js` reads
+ * `node.initialRouteName`), and an anchored nested navigator then wins the
+ * match for `/` outright — for every href, including a fully qualified
+ * `/(client)/(fisler)`. Since `(accountant)` sorts first, `<Redirect
+ * href="/(client)">` in `app/index.tsx` resolved into the accountant's
+ * stack. Measured, not theorised: see `app/__tests__/roleRouting.test.tsx`,
+ * which turns red the moment this export is removed.
+ *
+ * Anchoring the root gives its own `/` a declared winner, so the resolver
+ * stops descending into whichever nested anchor it happened to find first.
+ * Both role groups keep their anchors, so a deep-linked receipt still has
+ * its list beneath it and `canGoBack()` stays true there.
+ *
+ * Cost, accepted deliberately: a cold start straight onto a root-level route
+ * (`/giris`, `/tanitim`) now carries `index` beneath it, so one extra back
+ * press is needed before Android's back gesture exits the app. `index`
+ * immediately redirects onward, so no screen is ever stranded.
+ */
+export const unstable_settings = { initialRouteName: "index" };
+
 export default function RootLayout() {
   // `fontError` (previously discarded) matters: if font loading rejects,
   // `loaded` stays `false` forever. Left unhandled, that means `return
