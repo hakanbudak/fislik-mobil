@@ -23,9 +23,21 @@ let draining = false;
  * a failed upload — and `receiptId`/`uploadUrl` are preserved (the patch
  * only touches `status`) so the retry resumes instead of minting a second
  * receipt.
+ *
+ * A record left in `"held"` is a comparable stranding: a single camera shot
+ * enqueued via `captureToQueue(..., hold: true)` that was awaiting the
+ * user's "Bir tane daha çek" / "Sil" / "Bitti" on `CaptureScreen` when the
+ * app was killed. That decision is gone with the killed screen, and nothing
+ * else will ever call `releaseHold` for it, so left alone it would sit
+ * `"held"` — invisible to every drain — forever. The same fix applies:
+ * reset it to `"pending"` here, at launch, before anything is mid-upload or
+ * mid-confirmation. This deliberately resolves it as an upload rather than
+ * discarding it — the user did take that photo, and a wrongly-uploaded
+ * receipt can still be deleted from the list, while a silently destroyed
+ * one can't be recovered.
  */
-async function resetStrandedUploads(): Promise<void> {
-  const stranded = (await listQueue()).filter((r) => r.status === "uploading");
+async function resetStrandedRecords(): Promise<void> {
+  const stranded = (await listQueue()).filter((r) => r.status === "uploading" || r.status === "held");
   await Promise.all(stranded.map((r) => updateRecord(r.id, { status: "pending" })));
 }
 
@@ -59,20 +71,21 @@ export async function drainOnce(onUploaded?: UploadedHandler): Promise<void> {
 
 /**
  * Runs the queue for the lifetime of the app. Before the first drain, resets
- * any record stranded in `"uploading"` by a previous kill or crash back to
- * `"pending"` (see `resetStrandedUploads`). Retries are otherwise time-based
- * rather than tight-looped so a persistent failure cannot burn the battery,
- * and a connectivity change triggers an immediate pass.
+ * any record stranded in `"uploading"` or `"held"` by a previous kill or
+ * crash back to `"pending"` (see `resetStrandedRecords`). Retries are
+ * otherwise time-based rather than tight-looped so a persistent failure
+ * cannot burn the battery, and a connectivity change triggers an immediate
+ * pass.
  */
 export function startWorker(onUploaded?: UploadedHandler): () => void {
   let stopped = false;
 
   // Must run before the interval and the network listener are registered
-  // below — resetStrandedUploads' own contract is that it is never safe to
+  // below — resetStrandedRecords' own contract is that it is never safe to
   // call once draining may already be in progress, and registering either
   // of those first opens a window where a 15s tick or a connectivity change
   // could start a drain before the reset has run.
-  void resetStrandedUploads().then(() => {
+  void resetStrandedRecords().then(() => {
     if (!stopped) void drainOnce(onUploaded);
   });
 

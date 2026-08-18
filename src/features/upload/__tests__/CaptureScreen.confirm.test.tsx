@@ -4,6 +4,7 @@ import { forwardRef, useImperativeHandle } from "react";
 import { CaptureScreen } from "../CaptureScreen";
 import * as capture from "@/src/upload/capture";
 import * as queue from "@/src/upload/queue";
+import * as worker from "@/src/upload/worker";
 import { createTestQueryClient } from "@/src/test/queryClient";
 
 /**
@@ -24,7 +25,9 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 jest.mock("@/src/upload/capture");
 jest.mock("@/src/upload/queue", () => ({
   discardIfSafe: jest.fn(),
+  releaseHold: jest.fn(),
 }));
+jest.mock("@/src/upload/worker", () => ({ drainOnce: jest.fn() }));
 
 const mockTakePictureAsync = jest.fn();
 jest.mock("expo-camera", () => {
@@ -40,6 +43,7 @@ jest.mock("expo-camera", () => {
 
 const mockedCapture = capture as jest.Mocked<typeof capture>;
 const mockedQueue = queue as jest.Mocked<typeof queue>;
+const mockedWorker = worker as jest.Mocked<typeof worker>;
 
 function record(overrides: Partial<queue.QueueRecord> = {}): queue.QueueRecord {
   return {
@@ -69,7 +73,12 @@ function renderScreen(props: Partial<Parameters<typeof CaptureScreen>[0]> = {}) 
 }
 
 async function pressShutter() {
-  fireEvent.press(screen.getByLabelText("Fotoğraf çek"));
+  // `findByLabelText` retries: "Bir tane daha çek"/"Bitti" now release the
+  // hold before returning to the live shutter, so the shutter button can
+  // take a tick (an awaited `releaseHold`) to reappear after a previous
+  // confirmation was resolved.
+  const shutter = await screen.findByLabelText("Fotoğraf çek");
+  fireEvent.press(shutter);
   await waitFor(() => expect(mockedCapture.captureToQueue).toHaveBeenCalled());
 }
 
@@ -145,7 +154,7 @@ test("Bir tane daha çek enters burst mode: live shutter, no confirmation on the
   await pressShutter();
   fireEvent.press(screen.getByLabelText("Bir tane daha çek"));
 
-  expect(screen.getByLabelText("Fotoğraf çek")).toBeOnTheScreen();
+  expect(await screen.findByLabelText("Fotoğraf çek")).toBeOnTheScreen();
 
   await pressShutter();
 
@@ -164,5 +173,96 @@ test("an accountant's clientId still reaches the queued record via captureToQueu
     "2026-08",
     "c1",
     expect.any(Function),
+    true,
   );
+});
+
+// The design this whole file covers: the shot must not become eligible for
+// upload until the user decides. Asserted here at the boundary CaptureScreen
+// controls — that a single (non-burst) shot is captured with `hold: true` —
+// with `src/upload/__tests__/queue.test.ts` and `capture.test.ts` covering
+// what that argument actually does inside the queue.
+test("a single shot is captured with hold: true so it is not eligible for upload until confirmed", async () => {
+  mockedCapture.captureToQueue.mockResolvedValue(record());
+  renderScreen();
+
+  await pressShutter();
+
+  expect(mockedCapture.captureToQueue).toHaveBeenCalledWith(
+    "file:///cache/raw.jpg",
+    "2026-08",
+    undefined,
+    expect.any(Function),
+    true,
+  );
+});
+
+test("a burst shot is captured with hold: false, uploading immediately like before", async () => {
+  mockedCapture.captureToQueue
+    .mockResolvedValueOnce(record({ id: "shot-1" }))
+    .mockResolvedValueOnce(record({ id: "shot-2" }));
+  renderScreen();
+
+  await pressShutter();
+  fireEvent.press(screen.getByLabelText("Bir tane daha çek"));
+  await pressShutter();
+
+  expect(mockedCapture.captureToQueue).toHaveBeenLastCalledWith(
+    "file:///cache/raw.jpg",
+    "2026-08",
+    undefined,
+    expect.any(Function),
+    false,
+  );
+});
+
+test("Bitti releases the hold and drains before closing", async () => {
+  const onClose = jest.fn();
+  mockedCapture.captureToQueue.mockResolvedValue(record({ id: "shot-1" }));
+  mockedQueue.releaseHold.mockResolvedValue(undefined);
+  renderScreen({ onClose });
+
+  await pressShutter();
+  fireEvent.press(screen.getByLabelText("Bitti"));
+
+  await waitFor(() => expect(mockedQueue.releaseHold).toHaveBeenCalledWith("shot-1"));
+  expect(mockedWorker.drainOnce).toHaveBeenCalled();
+  expect(onClose).toHaveBeenCalled();
+});
+
+test("Bir tane daha çek releases the hold and drains before returning to a live shutter", async () => {
+  mockedCapture.captureToQueue.mockResolvedValue(record({ id: "shot-1" }));
+  mockedQueue.releaseHold.mockResolvedValue(undefined);
+  renderScreen();
+
+  await pressShutter();
+  fireEvent.press(screen.getByLabelText("Bir tane daha çek"));
+
+  await waitFor(() => expect(mockedQueue.releaseHold).toHaveBeenCalledWith("shot-1"));
+  expect(mockedWorker.drainOnce).toHaveBeenCalled();
+});
+
+test("the confirmation screen's own close button also releases the hold before closing", async () => {
+  const onClose = jest.fn();
+  mockedCapture.captureToQueue.mockResolvedValue(record({ id: "shot-1" }));
+  mockedQueue.releaseHold.mockResolvedValue(undefined);
+  renderScreen({ onClose });
+
+  await pressShutter();
+  fireEvent.press(screen.getByLabelText("Kapat"));
+
+  await waitFor(() => expect(mockedQueue.releaseHold).toHaveBeenCalledWith("shot-1"));
+  expect(onClose).toHaveBeenCalled();
+});
+
+test("Sil does not release the hold", async () => {
+  mockedCapture.captureToQueue.mockResolvedValue(record({ id: "shot-1" }));
+  mockedQueue.discardIfSafe.mockResolvedValue("removed");
+  renderScreen();
+
+  await pressShutter();
+  fireEvent.press(screen.getByLabelText("Sil"));
+
+  await waitFor(() => expect(mockedQueue.discardIfSafe).toHaveBeenCalledWith("shot-1"));
+  expect(mockedQueue.releaseHold).not.toHaveBeenCalled();
 });

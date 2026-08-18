@@ -5,8 +5,8 @@ import { useRef, useState } from "react";
 import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { captureToQueue, pickDocument, pickFromLibrary } from "@/src/upload/capture";
 import { invalidateAfterUpload } from "@/src/upload/invalidateAfterUpload";
-import { discardIfSafe, type QueueRecord } from "@/src/upload/queue";
-import type { UploadedHandler } from "@/src/upload/worker";
+import { discardIfSafe, releaseHold, type QueueRecord } from "@/src/upload/queue";
+import { drainOnce, type UploadedHandler } from "@/src/upload/worker";
 import { Button } from "@/src/theme/components/Button";
 import { EmptyState } from "@/src/theme/components/EmptyState";
 import { formatPeriodLabel } from "@/src/lib/period";
@@ -25,15 +25,19 @@ import { text } from "@/src/theme/typography";
  * its own) the corner pill is replaced by a strip of thumbnails.
  *
  * `captureToQueue` enqueues a shot the instant it's taken (see
- * src/upload/capture.ts) — the confirmation screen is shown *after* that,
- * so "Sil" has to actively undo the enqueue, not just remove the shot from
- * local state. It uses `discardIfSafe` from `src/upload/queue.ts` rather
- * than the queued-receipt cards' plain `removeRecord` (`useUploadQueue.ts`'s
- * `discard`): offered here, at the instant of capture, "Sil" is far more
- * likely to land while the record is still mid-upload than it is on a
- * card encountered later, and `removeRecord` doesn't check status before
- * deleting — see `discardIfSafe`'s docstring for what that would silently
- * get wrong.
+ * src/upload/capture.ts) — persisted immediately, so it survives the app
+ * being killed even with no connectivity. A single (non-burst) shot is
+ * enqueued with `hold: true`, which keeps it out of every drain (`nextPending`
+ * never matches a `"held"` record) until the confirmation below is
+ * resolved — otherwise "Sil" would be racing an upload that may have
+ * already started, exactly the bug this screen used to have. "Bir tane
+ * daha çek" and "Bitti" call `releaseHold` then trigger a drain, making the
+ * shot eligible; "Sil" instead calls `discardIfSafe` from
+ * `src/upload/queue.ts` rather than the queued-receipt cards' plain
+ * `removeRecord` (`useUploadQueue.ts`'s `discard`) — `removeRecord` doesn't
+ * check status before deleting, which would be unsafe for the rarer case
+ * (burst mode, or a duplicate resolve) where the record has already left
+ * `"held"` — see `discardIfSafe`'s docstring.
  *
  * Shared by two routes: `app/(client)/kamera.tsx` (a client's own capture,
  * always the current month, no `clientId`) and
@@ -109,7 +113,10 @@ export function CaptureScreen({
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.9 });
       if (photo) {
-        const record = await captureToQueue(photo.uri, period, clientId, onUploaded);
+        // A burst shot uploads immediately, same as before — only a
+        // single, un-confirmed shot is held back from the queue's drain
+        // paths until "Bir tane daha çek"/"Bitti" resolves it.
+        const record = await captureToQueue(photo.uri, period, clientId, onUploaded, !burst);
         setShots((prev) => [...prev, record]);
         if (!burst) {
           setDiscardNotice(null);
@@ -143,10 +150,40 @@ export function CaptureScreen({
     }
   }
 
-  function handleAnotherShot() {
+  // Shared by "Bir tane daha çek", "Bitti" and the confirmation screen's own
+  // close button — every way of leaving the confirmation screen other than
+  // "Sil" means the user is keeping the shot, so all three release it the
+  // same way. `releaseHold` is a no-op if the record is somehow already
+  // past "held" (e.g. a duplicate call), so this is safe to call more than
+  // once for the same shot.
+  async function resolvePendingShot() {
+    if (!pendingShot) return;
+    await releaseHold(pendingShot.id);
+    void drainOnce(onUploaded);
+  }
+
+  async function handleAnotherShot() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await resolvePendingShot();
+    } finally {
+      setBusy(false);
+    }
     setBurst(true);
     setPendingShot(null);
     setDiscardNotice(null);
+  }
+
+  async function handleFinishConfirm() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await resolvePendingShot();
+    } finally {
+      setBusy(false);
+    }
+    onClose();
   }
 
   async function handleDiscard() {
@@ -180,12 +217,19 @@ export function CaptureScreen({
           resizeMode="contain"
         />
 
+        {/*
+          Same release-then-close as "Bitti" below, not a bare `onClose` —
+          this is still a way of leaving the confirmation screen while
+          keeping the shot, so it must resolve the hold too. Otherwise a
+          shot closed out this way would stay "held" (invisible to every
+          drain) until the app is next launched.
+        */}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Kapat"
           style={styles.close}
           hitSlop={{ top: 2, bottom: 2, left: 2, right: 2 }}
-          onPress={onClose}
+          onPress={() => void handleFinishConfirm()}
         >
           <X color={tokens.color.onPrimary} size={24} />
         </Pressable>
@@ -194,9 +238,14 @@ export function CaptureScreen({
           {discardNotice ? (
             <Text style={[text.caption, styles.discardNoticeText]}>{discardNotice}</Text>
           ) : null}
-          <Button title="Bir tane daha çek" variant="secondary" onPress={handleAnotherShot} disabled={busy} />
+          <Button
+            title="Bir tane daha çek"
+            variant="secondary"
+            onPress={() => void handleAnotherShot()}
+            disabled={busy}
+          />
           <Button title="Sil" variant="danger" onPress={() => void handleDiscard()} disabled={busy} />
-          <Button title="Bitti" onPress={onClose} disabled={busy} />
+          <Button title="Bitti" onPress={() => void handleFinishConfirm()} disabled={busy} />
         </View>
       </View>
     );

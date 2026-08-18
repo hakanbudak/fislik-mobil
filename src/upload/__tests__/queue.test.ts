@@ -6,6 +6,7 @@ import {
   enqueue,
   listQueue,
   nextPending,
+  releaseHold,
   removeRecord,
   subscribe,
   updateRecord,
@@ -91,6 +92,56 @@ test("nextPending skips records that exhausted their attempts", async () => {
   const record = await enqueue(input());
   await updateRecord(record.id, { status: "failed", attempts: MAX_ATTEMPTS });
   await expect(nextPending()).resolves.toBeNull();
+});
+
+// The core of the hold-before-upload fix: a capture awaiting the user's
+// confirmation must not be eligible for any drain. `enqueue({ hold: true })`
+// is what CaptureScreen's single-shot path uses instead of enqueuing
+// `"pending"` and hoping nothing drains it before the confirmation resolves
+// — see capture.ts's `captureToQueue` and its docstring for why removing
+// just the immediate `drainOnce` call was not enough (the worker's 15s
+// interval and network-change drains would still race it).
+test("a record enqueued with hold: true starts held, not pending, and is invisible to nextPending", async () => {
+  const record = await enqueue({ ...input(), hold: true });
+  expect(record.status).toBe("held");
+  await expect(nextPending()).resolves.toBeNull();
+});
+
+test("enqueue without hold still starts pending, unaffected by the hold option existing", async () => {
+  const record = await enqueue(input());
+  expect(record.status).toBe("pending");
+});
+
+test("releaseHold makes a held record eligible for upload", async () => {
+  const record = await enqueue({ ...input(), hold: true });
+  await releaseHold(record.id);
+  await expect(nextPending()).resolves.toMatchObject({ id: record.id, status: "pending" });
+});
+
+test("releaseHold is a no-op on a record that is not held", async () => {
+  const record = await enqueue(input()); // already "pending"
+  await updateRecord(record.id, { status: "uploading" });
+  await releaseHold(record.id);
+  const [stored] = await listQueue();
+  // Still "uploading" — releaseHold must not clobber a status a drain has
+  // already moved the record into.
+  expect(stored.status).toBe("uploading");
+});
+
+test("releaseHold on a record that no longer exists does not throw or create one", async () => {
+  await expect(releaseHold("never-enqueued")).resolves.toBeUndefined();
+  await expect(listQueue()).resolves.toEqual([]);
+});
+
+// "Sil" on an unreleased shot: discardIfSafe must remove a held record
+// cleanly, the same as a pending one — this is what makes "Sil" a real
+// cancellation instead of a race against an upload that may already have
+// started.
+test("discardIfSafe removes a still-held record cleanly", async () => {
+  const record = await enqueue({ ...input(), hold: true });
+  await expect(discardIfSafe(record.id)).resolves.toBe("removed");
+  expect(mockedFileDelete).toHaveBeenCalledTimes(1);
+  await expect(listQueue()).resolves.toHaveLength(0);
 });
 
 test("updateRecord patches without dropping other fields", async () => {

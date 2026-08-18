@@ -98,6 +98,29 @@ test("threads clientId for an accountant's on-behalf capture", async () => {
   expect(mockedQueue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ clientId: "c1" }));
 });
 
+// CaptureScreen's single-shot confirmation depends on this: `hold: true`
+// must reach `enqueue` unchanged so the record is created "held" (see
+// queue.test.ts) instead of "pending", which is what keeps it out of every
+// drain until the confirmation resolves.
+test("threads hold: true through to enqueue for a held capture", async () => {
+  await captureToQueue("file:///cache/raw.jpg", "2026-08", undefined, undefined, true);
+  expect(mockedQueue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ hold: true }));
+});
+
+// Default behaviour (no fifth argument, and burst-mode shots which pass
+// `hold: false`) must keep enqueuing and uploading exactly as before this
+// fix — no confirmation, nothing held.
+test("does not hold by default", async () => {
+  await captureToQueue("file:///cache/raw.jpg", "2026-08");
+  expect(mockedQueue.enqueue).toHaveBeenCalledWith(expect.not.objectContaining({ hold: true }));
+});
+
+test("still drains immediately regardless of hold, so other eligible records keep moving", async () => {
+  const onUploaded = jest.fn();
+  await captureToQueue("file:///cache/raw.jpg", "2026-08", undefined, onUploaded, true);
+  expect(mockedWorker.drainOnce).toHaveBeenCalledWith(onUploaded);
+});
+
 // Branch review, IMPORTANT: capture.ts's own drainOnce() calls used to pass
 // no handler. worker.ts's `draining` guard makes the first caller win, so
 // when a capture's own drain performed the upload (not the worker
@@ -125,6 +148,15 @@ describe("pickDocument", () => {
     pickedPdf();
     await pickDocument("2026-08");
     expect(mockedQueue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ contentType: "application/pdf" }));
+  });
+
+  // pickDocument deliberately shows no confirmation — the OS document
+  // picker already confirmed the pick — so it must never hold the record
+  // back from a drain the way CaptureScreen's single-shot path does.
+  test("never holds the record; uploads exactly as before this fix", async () => {
+    pickedPdf();
+    await pickDocument("2026-08");
+    expect(mockedQueue.enqueue).toHaveBeenCalledWith(expect.not.objectContaining({ hold: true }));
   });
 
   // The whole point of this test: a PDF must never be routed through the
@@ -184,6 +216,17 @@ describe("pickFromLibrary", () => {
     expect(records).toHaveLength(2);
     expect(manipulator.manipulateAsync).toHaveBeenCalledTimes(2);
     expect(mockedQueue.enqueue).toHaveBeenCalledTimes(2);
+  });
+
+  // pickFromLibrary deliberately shows no confirmation — the OS photo
+  // picker already confirmed the selection — so it must never hold a
+  // record back from a drain the way CaptureScreen's single-shot path does.
+  test("never holds any record; uploads exactly as before this fix", async () => {
+    pickedPhotos(["file:///cache/a.jpg", "file:///cache/b.jpg"]);
+    await pickFromLibrary("2026-08");
+    for (const call of mockedQueue.enqueue.mock.calls) {
+      expect(call[0]).toEqual(expect.not.objectContaining({ hold: true }));
+    }
   });
 
   test("enqueues nothing when cancelled", async () => {

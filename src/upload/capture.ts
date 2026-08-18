@@ -36,12 +36,29 @@ function randomFileName(extension: string): string {
  * second chance to invalidate. Same handler `useUploadQueue.ts`'s `retry`
  * threads through; `CaptureScreen` supplies it the same way, binding
  * `invalidateAfterUpload` to its `queryClient`.
+ *
+ * `hold` is what `CaptureScreen`'s single-shot confirmation ("Bir tane daha
+ * çek" / "Sil" / "Bitti") is built on: passing `true` still persists the
+ * shot to the queue immediately — a photo must survive the app being
+ * killed with no connectivity even before it's confirmed — but enqueues it
+ * with status `"held"` instead of `"pending"` (see `queue.ts#enqueue`), so
+ * `nextPending` never matches it and no drain (this function's own call
+ * below, the worker's interval, or a network-change drain) can start
+ * uploading it while the user is still deciding. The `drainOnce` call below
+ * still runs unconditionally even when `hold` is true — it's a no-op for
+ * *this* record but still makes progress on anything else already
+ * eligible. Resolving the confirmation calls `releaseHold` (via
+ * `CaptureScreen`) to make the record eligible and trigger a drain;
+ * `discardIfSafe` handles "Sil". Burst-mode shots and the gallery/PDF
+ * pickers below never set this — they must keep uploading exactly as
+ * before, with no confirmation.
  */
 export async function captureToQueue(
   uri: string,
   period: string,
   clientId?: string,
   onUploaded?: UploadedHandler,
+  hold?: boolean,
 ): Promise<QueueRecord> {
   const compressed = await ImageManipulator.manipulateAsync(uri, [{ resize: { width: 1600 } }], {
     compress: 0.7,
@@ -57,6 +74,7 @@ export async function captureToQueue(
     contentType: "image/jpeg",
     period,
     ...(clientId ? { clientId } : {}),
+    ...(hold ? { hold } : {}),
   });
   void drainOnce(onUploaded);
   return record;

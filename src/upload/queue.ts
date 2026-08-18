@@ -5,7 +5,7 @@ const KEY = "fislik.upload_queue";
 
 export const MAX_ATTEMPTS = 5;
 
-export type QueueStatus = "pending" | "uploading" | "failed";
+export type QueueStatus = "pending" | "held" | "uploading" | "failed";
 
 export interface QueueRecord {
   id: string; // local uuid, not the server receipt id
@@ -86,17 +86,52 @@ export async function enqueue(input: {
   contentType: string;
   period: string;
   clientId?: string;
+  /**
+   * When true, the record is created with status `"held"` instead of
+   * `"pending"` — `nextPending` only ever matches `"pending"`, so a held
+   * record is invisible to every drain path (the capture's own immediate
+   * drain, the worker's 15s interval, a network-change drain) until
+   * something explicitly calls `releaseHold`. This is what lets
+   * `CaptureScreen` persist a shot to the queue the instant it's taken —
+   * preserving the offline guarantee — while keeping it out of the upload
+   * pipeline until the user resolves the "Bir tane daha çek" / "Sil" /
+   * "Bitti" confirmation. Not stored on the record itself.
+   */
+  hold?: boolean;
 }): Promise<QueueRecord> {
   return synchronized(async () => {
+    const { hold, ...rest } = input;
     const record: QueueRecord = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-      ...input,
-      status: "pending",
+      ...rest,
+      status: hold ? "held" : "pending",
       attempts: 0,
       createdAt: Date.now(),
     };
     await write([...(await read()), record]);
     return record;
+  });
+}
+
+/**
+ * Resolves a record enqueued with `hold: true`, making it eligible for
+ * upload — the counterpart to `enqueue`'s `hold` option. Called when the
+ * user resolves CaptureScreen's confirmation with "Bir tane daha çek" or
+ * "Bitti"; "Sil" instead calls `discardIfSafe`, which never lets a held
+ * record reach here.
+ *
+ * A no-op (not an error) when the record is no longer `"held"` — already
+ * released by an earlier call, already discarded, or never existed — so a
+ * duplicate resolve can never resurrect a record the user deleted or
+ * clobber a status a drain has since moved on from. Runs inside the same
+ * `synchronized` task as every other mutation, so there is no window for a
+ * concurrent `discardIfSafe` to remove the record between reading its
+ * status here and acting on it.
+ */
+export async function releaseHold(id: string): Promise<void> {
+  return synchronized(async () => {
+    const records = await read();
+    await write(records.map((r) => (r.id === id && r.status === "held" ? { ...r, status: "pending" } : r)));
   });
 }
 
@@ -130,12 +165,19 @@ export type DiscardOutcome = "removed" | "already-uploaded" | "in-progress";
 /**
  * The status-aware counterpart to `removeRecord`, for a "Sil" offered at
  * the instant of capture (`CaptureScreen.tsx`) rather than on a
- * queued-receipt card encountered later. `captureToQueue` fires
- * `drainOnce` immediately on enqueue, so by the time this runs the record
- * may already be mid-upload or gone — `removeRecord` alone doesn't check,
- * so calling it here could silently no-op on an already-uploaded record
- * (nothing to delete, no error) or race a PUT that finishes anyway,
- * leaving a receipt on the server the user believes they deleted.
+ * queued-receipt card encountered later. A single-shot capture is enqueued
+ * with `hold: true` and stays `"held"` — invisible to every drain — until
+ * "Bir tane daha çek"/"Bitti" calls `releaseHold`, so in normal use "Sil"
+ * lands on a `"held"` record and this is a guaranteed cancellation. Burst
+ * shots and gallery/PDF picks skip the confirmation screen entirely and are
+ * never held, so this function still has to handle a `"pending"`,
+ * `"uploading"`, or already-gone record too — and a genuinely raced
+ * `"held"` record left over from before this fix, or reached through some
+ * future caller that offers "Sil" without holding first. `removeRecord`
+ * alone doesn't check status, so calling it blindly could silently no-op on
+ * an already-uploaded record (nothing to delete, no error) or race a PUT
+ * that finishes anyway, leaving a receipt on the server the user believes
+ * they deleted.
  *
  * The status check and the removal happen inside the same `synchronized`
  * task as every other queue mutation, so there is no window between
@@ -148,8 +190,8 @@ export type DiscardOutcome = "removed" | "already-uploaded" | "in-progress";
  *   way to abort or unsend it from here, so this is left alone and
  *   reported as `"in-progress"` rather than claiming a cancellation that
  *   can't be delivered.
- * - Anything else (`"pending"`, or `"failed"` — no successful upload
- *   happened): removed exactly like `removeRecord`.
+ * - Anything else (`"held"`, `"pending"`, or `"failed"` — no successful
+ *   upload happened): removed exactly like `removeRecord`.
  */
 export async function discardIfSafe(id: string): Promise<DiscardOutcome> {
   return synchronized(async () => {

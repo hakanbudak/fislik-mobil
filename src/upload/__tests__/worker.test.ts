@@ -116,6 +116,24 @@ test("startWorker resets a stranded uploading record to pending without touching
   stop();
 });
 
+// A record left "held" means a single camera shot's confirmation ("Bir tane
+// daha çek" / "Sil" / "Bitti") was never resolved before the app was
+// killed. That decision is gone with the killed screen, so nothing will
+// ever call releaseHold for it — it must not be stranded there forever.
+// The chosen resolution (per the design doc) is to resolve it as an upload,
+// not discard it: a wrongly-uploaded receipt can be deleted from the list,
+// a silently destroyed one can't be recovered. This mirrors exactly how a
+// stranded "uploading" record is handled above.
+test("startWorker resets a held record to pending on a fresh launch, making it eligible instead of stranding it", async () => {
+  mockedQueue.listQueue.mockResolvedValue([record({ id: "q1", status: "held" })]);
+  mockedQueue.nextPending.mockResolvedValue(null);
+  const stop = startWorker();
+  await flush();
+  await flush();
+  expect(mockedQueue.updateRecord).toHaveBeenCalledWith("q1", { status: "pending" });
+  stop();
+});
+
 test("drainOnce alone (no startWorker) never resets stranded uploads", async () => {
   mockedQueue.nextPending.mockResolvedValueOnce(record()).mockResolvedValue(null);
   await drainOnce();
