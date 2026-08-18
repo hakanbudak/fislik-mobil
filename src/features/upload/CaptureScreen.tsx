@@ -229,6 +229,7 @@ export function CaptureScreen({
           accessibilityLabel="Kapat"
           style={styles.close}
           hitSlop={{ top: 2, bottom: 2, left: 2, right: 2 }}
+          disabled={busy}
           onPress={() => void handleFinishConfirm()}
         >
           <X color={tokens.color.onPrimary} size={24} />
