@@ -98,10 +98,23 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
  * Both role groups keep their anchors, so a deep-linked receipt still has
  * its list beneath it and `canGoBack()` stays true there.
  *
- * Cost, accepted deliberately: a cold start straight onto a root-level route
- * (`/giris`, `/tanitim`) now carries `index` beneath it, so one extra back
- * press is needed before Android's back gesture exits the app. `index`
- * immediately redirects onward, so no screen is ever stranded.
+ * INVARIANT, for whoever adds the next route group: exactly one route may be
+ * the declared anchor competing for `/` at the ROOT, and it must be this
+ * `index`. Three `isInitial` leaves already contend for the empty path — this
+ * one and each role group's list — and `getStateFromPath-forks.js` ranks
+ * `isInitial` configs ahead of everything else before falling through to a
+ * group-similarity tiebreak that is not documented as API. Adding a fourth
+ * group whose `index` sits at `/`, or moving this anchor, re-enters that
+ * tiebreak and can silently hand `/` to the wrong group again. If a new group
+ * needs a list at `/`, give it a real URL segment instead.
+ *
+ * Cost, accepted deliberately and measured, not assumed. The primary paths —
+ * a cold start on `/`, and sign-in — need no extra back press. A deep-linked
+ * receipt does: `index` now sits beneath it. And backing out of a cold-start
+ * `/tanitim` now drops into the role shell WITHOUT the tour having marked
+ * itself seen, so the tour returns on the next launch; `finish()` is still the
+ * only thing that writes the flag. Nothing is ever stranded — `index`
+ * redirects onward immediately.
  */
 export const unstable_settings = { initialRouteName: "index" };
 

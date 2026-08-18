@@ -7,6 +7,7 @@ import * as rootLayout from "../_layout";
 import Index from "../index";
 import AccountantTabsLayout from "../(accountant)/_layout";
 import * as accountantStack from "../(accountant)/(mukellefler)/_layout";
+import * as authLayout from "../(auth)/_layout";
 import ClientTabsLayout from "../(client)/_layout";
 import * as clientStack from "../(client)/(fisler)/_layout";
 import { createTestQueryClient } from "@/src/test/queryClient";
@@ -29,8 +30,11 @@ import { createTestQueryClient } from "@/src/test/queryClient";
  * asked, and the real lists pull in the upload queue, a camera and the
  * notification poller.
  *
- * Remove `unstable_settings` from `app/_layout.tsx` and every client case
- * below fails with the accountant's list on screen — the exact device report.
+ * Remove `unstable_settings` from `app/_layout.tsx` and three of these fail
+ * with `a signed-in client landed in the accountant shell ("Mükellefler
+ * listesi")` — the device report, verbatim. Reproducing that DIRECTION depends
+ * entirely on the route map below being ordered the way the bundle orders it;
+ * see the note on the map.
  */
 const mockUseAuth = jest.fn();
 jest.mock("@/src/auth/AuthProvider", () => ({
@@ -59,36 +63,49 @@ function renderApp(role: "client" | "accountant", initialUrl: string) {
   mockUseAuth.mockReturnValue({ status: "authed", user: { id: "u1", role } });
   const queryClient = createTestQueryClient();
   return renderRouter(
+    // KEY ORDER IS LOAD-BEARING — keep it byte-sorted, and keep this list in
+    // step with `app/`. `renderRouter`'s in-memory context hands these keys to
+    // `getRoutes()` in insertion order, and Metro's real `require.context`
+    // hands over `files.sort()` — a plain lexicographic sort of the
+    // `./`-prefixed relative paths, see `createFileMap` in
+    // `metro/src/lib/contextModuleTemplates.js`. Sibling order is what decides
+    // which of the routes competing for `/` wins the tiebreak, so a map
+    // ordered any other way measures a route tree the bundle never builds.
+    // `(` (0x28) sorts before `+` (0x2B) before `_` (0x5F) before letters,
+    // which is why the groups come first and `index` comes near the end.
+    // `__tests__` files are excluded here the same way `src/test/expoRouterRegistry.ts`
+    // excludes them.
     {
-      _layout: { ...rootLayout },
-      index: Index,
-      tanitim: () => <Text>Tanıtım</Text>,
-      "(auth)/giris": () => <Text>Giriş</Text>,
-      "(auth)/kayit": () => <Text>Kayıt</Text>,
-      "(auth)/davet/[token]": () => <Text>Davet</Text>,
-      "(auth)/sifre-sifirla/index": () => <Text>Şifre sıfırla</Text>,
-      "(auth)/sifre-sifirla/[token]": () => <Text>Şifre sıfırla</Text>,
-      "+not-found": () => <Text>Bulunamadı</Text>,
-      "(client)/_layout": ClientTabsLayout,
-      "(client)/(fisler)/_layout": { ...clientStack },
-      "(client)/(fisler)/index": () => <Text>{CLIENT_SHELL}</Text>,
-      "(client)/(fisler)/fis/[id]": () => <Text>Fiş detayı</Text>,
-      "(client)/muhasebecim": () => <Text>Muhasebecim</Text>,
-      "(client)/kamera": () => <Text>Kamera</Text>,
-      "(client)/bildirimler": () => <Text>Bildirimler</Text>,
-      "(client)/profil": () => <Text>Profil</Text>,
-      "(client)/firma-bilgileri": () => <Text>Firma bilgileri</Text>,
-      "(client)/yardim": () => <Text>Yardım</Text>,
-      "(accountant)/_layout": AccountantTabsLayout,
       "(accountant)/(mukellefler)/_layout": { ...accountantStack },
       "(accountant)/(mukellefler)/index": () => <Text>{ACCOUNTANT_SHELL}</Text>,
       "(accountant)/(mukellefler)/mukellef/[clientId]": () => <Text>Mükellef</Text>,
       "(accountant)/(mukellefler)/mukellef/[clientId]/fis/[id]": () => <Text>Fiş detayı</Text>,
       "(accountant)/(mukellefler)/mukellef/[clientId]/kamera": () => <Text>Kamera</Text>,
+      "(accountant)/_layout": AccountantTabsLayout,
       "(accountant)/bildirimler": () => <Text>Bildirimler</Text>,
-      "(accountant)/profil": () => <Text>Profil</Text>,
       "(accountant)/mukellefleri-yonet": () => <Text>Mükellefleri yönet</Text>,
+      "(accountant)/profil": () => <Text>Profil</Text>,
       "(accountant)/yardim": () => <Text>Yardım</Text>,
+      "(auth)/_layout": { ...authLayout },
+      "(auth)/davet/[token]": () => <Text>Davet</Text>,
+      "(auth)/giris": () => <Text>Giriş</Text>,
+      "(auth)/kayit": () => <Text>Kayıt</Text>,
+      "(auth)/sifre-sifirla/[token]": () => <Text>Şifre sıfırla</Text>,
+      "(auth)/sifre-sifirla/index": () => <Text>Şifre sıfırla</Text>,
+      "(client)/(fisler)/_layout": { ...clientStack },
+      "(client)/(fisler)/fis/[id]": () => <Text>Fiş detayı</Text>,
+      "(client)/(fisler)/index": () => <Text>{CLIENT_SHELL}</Text>,
+      "(client)/_layout": ClientTabsLayout,
+      "(client)/bildirimler": () => <Text>Bildirimler</Text>,
+      "(client)/firma-bilgileri": () => <Text>Firma bilgileri</Text>,
+      "(client)/kamera": () => <Text>Kamera</Text>,
+      "(client)/muhasebecim": () => <Text>Muhasebecim</Text>,
+      "(client)/profil": () => <Text>Profil</Text>,
+      "(client)/yardim": () => <Text>Yardım</Text>,
+      "+not-found": () => <Text>Bulunamadı</Text>,
+      _layout: { ...rootLayout },
+      index: Index,
+      tanitim: () => <Text>Tanıtım</Text>,
     },
     {
       initialUrl,
@@ -145,17 +162,16 @@ test("a newly registered accountant lands in the accountant shell", async () => 
   await expectShell("accountant");
 });
 
-test("a newly registered client lands in the client shell after company onboarding", async () => {
-  renderApp("client", "/kayit");
-  // `app/(auth)/kayit.tsx`'s client branch: mandatory company setup first...
-  act(() =>
-    router.replace({ pathname: "/(client)/firma-bilgileri", params: { onboarding: "1" } }),
-  );
-  await waitFor(() => expect(screen.getByText("Firma bilgileri")).toBeOnTheScreen());
-  // ...then that screen's own exits (skip, or a successful save) route through "/".
-  act(() => router.replace("/"));
-  await expectShell("client");
-});
+// There is deliberately NO client-registration case here. That path is the one
+// entry point this defect cannot reach, and a test for it was written, measured
+// against the pre-fix tree, found green, and removed rather than kept as
+// decorative coverage. A new client goes `/kayit` ->
+// `/(client)/firma-bilgileri` -> `/`, so by the time `/` is resolved the
+// `(client)` group is already active, and the resolver's group-similarity
+// tiebreak settles the match before `isInitial` is ever consulted — the
+// onboarding hop immunises it. Nothing can be asserted there that the accountant
+// case above does not already prove, so asserting it would only manufacture a
+// green line for a path the bug never touched.
 
 test.each(["client", "accountant"] as const)(
   "a %s leaving the intro tour lands in their own shell",
