@@ -305,12 +305,24 @@ const styles = StyleSheet.create({
   // button/on-behalf banner (both end well within the top 14% of any
   // real device height); `bottom` leaves room for the bottom bar,
   // including its thumbnail strip once shots exist.
+  //
+  // The horizontal inset is a percentage, not a fixed offset, because it
+  // encodes a *shooting distance* rather than a margin. An 80mm receipt
+  // filling a fraction f of the frame width has to be held at roughly
+  // 80 / (f x 1.374) mm from the lens (1.374 = 2 tan(hFOV/2) for a phone
+  // main camera around 26mm-equivalent). The first version inset the rails
+  // by a fixed 32pt, leaving f ~ 0.84 on a 390pt screen — about 7cm, which
+  // is inside the minimum focus distance of most phone cameras, so the
+  // receipt could not even be brought into focus. 27% a side leaves
+  // f ~ 0.46, i.e. ~15cm: a natural holding distance that still fills
+  // enough of the frame for the server-side extraction to read the text.
+  // Length is unconstrained, so a long receipt simply runs past the rails.
   frameGuide: {
     position: "absolute",
     top: "14%",
     bottom: "30%",
-    left: tokens.space(8),
-    right: tokens.space(8),
+    left: "27%",
+    right: "27%",
   },
   // Two vertical rails, not a closed box: the receipt's width is
   // standardised (80mm most commonly) but its length depends on line-item
