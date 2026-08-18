@@ -40,12 +40,17 @@ export const tokens = {
     // different `ink` opacity from both `border` and `divider` above — the
     // design pins all three separately rather than sharing one.
     dotInactive: "rgba(12, 26, 24, 0.16)",
-    // The framing-guide rectangle drawn over the live camera preview
-    // (kamera.tsx) — a translucent white border the user aligns a receipt
-    // inside. Purely a visual aid; distinct from `onPrimaryMuted` (a solid
-    // `onPrimary` fill's ring treatment) because this sits directly on top
-    // of the unpredictable camera feed and needs its own contrast.
-    viewfinderGuide: "rgba(255, 255, 255, 0.55)",
+    // The framing-guide rails drawn over the live camera preview
+    // (kamera.tsx) — two vertical lines the user aligns a receipt's left
+    // and right edges to. Purely a visual aid; distinct from
+    // `onPrimaryMuted` (a solid `onPrimary` fill's ring treatment) because
+    // this sits directly on top of the unpredictable camera feed and needs
+    // its own contrast. Deliberately `primary`-based rather than white:
+    // the subject is till-receipt paper, which is white or near-white, so
+    // a translucent white line (the previous value) all but disappears
+    // against it; a saturated brand color reads clearly against both white
+    // paper and a dark background.
+    viewfinderGuide: "rgba(15, 118, 110, 0.85)",
   },
   radius: { sm: 8, md: 11, lg: 14, pill: 999 },
   space: (n: number) => n * 4,

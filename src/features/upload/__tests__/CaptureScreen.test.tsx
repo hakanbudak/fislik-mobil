@@ -98,3 +98,29 @@ test("calls onClose when Bitir is pressed", () => {
   fireEvent.press(screen.getByLabelText("Bitir"));
   expect(onClose).toHaveBeenCalled();
 });
+
+// The framing guide is purely visual: it must render, must not intercept
+// touches, and — per the "receipts have a standard width but not a
+// standard length" design — must not draw a closed box around a fixed
+// area. See CaptureScreen.tsx's frameGuide comment for the reasoning.
+test("renders a non-interactive framing guide that is not a closed box", () => {
+  renderScreen({ period: "2026-08", onClose: jest.fn() });
+
+  const guide = screen.getByTestId("frame-guide");
+  expect(guide.props.pointerEvents).toBe("none");
+
+  // Two open rails (left/right edges only), not four sides of a box: no
+  // top/bottom border anywhere in the guide's own styling, and exactly
+  // two child rails.
+  const flattenStyles = (style: unknown): Record<string, unknown>[] =>
+    (Array.isArray(style) ? style : [style]).filter(Boolean) as Record<string, unknown>[];
+
+  const guideStyles = flattenStyles(guide.props.style);
+  for (const s of guideStyles) {
+    expect(s.borderTopWidth).toBeUndefined();
+    expect(s.borderBottomWidth).toBeUndefined();
+    expect(s.borderWidth).toBeUndefined();
+  }
+
+  expect(guide.children).toHaveLength(2);
+});

@@ -206,8 +206,20 @@ export function CaptureScreen({
     <View style={styles.container}>
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
 
-      {/* Purely visual guidance for aligning the receipt — constrains and triggers nothing. */}
-      <View pointerEvents="none" style={styles.frameGuide} />
+      {/*
+        Purely visual guidance for aligning the receipt — constrains and
+        triggers nothing. Till-receipt rolls are standardised in width
+        (80mm most commonly, 57/58mm also in use) but not in length, which
+        depends on how many line items printed. Two open vertical rails
+        mark where the paper's left/right edges should sit; deliberately
+        NOT a closed box, so a three-item receipt and a thirty-item one
+        both read as "correctly placed" instead of one being asked to
+        stretch into a fixed-height frame it doesn't fill.
+      */}
+      <View pointerEvents="none" style={styles.frameGuide} testID="frame-guide">
+        <View style={styles.frameGuideRailLeft} />
+        <View style={styles.frameGuideRailRight} />
+      </View>
 
       <Pressable
         accessibilityRole="button"
@@ -288,15 +300,37 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  // Positioning box for the two rails below — an unstyled container so the
+  // rails themselves are the only thing drawn. `top` clears the close
+  // button/on-behalf banner (both end well within the top 14% of any
+  // real device height); `bottom` leaves room for the bottom bar,
+  // including its thumbnail strip once shots exist.
   frameGuide: {
     position: "absolute",
-    top: "22%",
+    top: "14%",
     bottom: "30%",
     left: tokens.space(8),
     right: tokens.space(8),
-    borderWidth: 2,
-    borderColor: tokens.color.viewfinderGuide,
-    borderRadius: tokens.radius.lg,
+  },
+  // Two vertical rails, not a closed box: the receipt's width is
+  // standardised (80mm most commonly) but its length depends on line-item
+  // count, so only the left/right edges get a guide. Open top and bottom
+  // so both a short and a long receipt read as correctly aligned.
+  frameGuideRailLeft: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: 2,
+    backgroundColor: tokens.color.viewfinderGuide,
+  },
+  frameGuideRailRight: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    right: 0,
+    width: 2,
+    backgroundColor: tokens.color.viewfinderGuide,
   },
   onBehalfBanner: {
     position: "absolute",
