@@ -60,6 +60,16 @@ export default function ReceiptDetailScreen() {
     queryKey: queryKeys.clientReceipts(clientId, period),
     queryFn: () => clientReceipts(clientId, period),
     retry: false,
+    // Poll while THIS receipt is still being analyzed, scoped to `id` like
+    // the client's own detail screen (app/(client)/(fisler)/fis/[id].tsx) —
+    // the web has no route of its own to port this from (the accountant
+    // reviews receipts inline in AccountantMonthPage), but a receipt opened
+    // via a direct deep link to this screen has no other screen's poll to
+    // fall back on (unlike the common case, reached by pushing from
+    // ../[clientId].tsx, which shares this exact query key and is already
+    // polling), so this screen needs its own.
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((r) => r.id === id && r.extraction?.status === "pending") ? 5000 : false,
   });
   const receipt = receiptsQuery.data?.find((r) => r.id === id);
 

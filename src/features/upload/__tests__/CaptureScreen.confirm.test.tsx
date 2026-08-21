@@ -310,3 +310,93 @@ test("re-entering the camera after an unresolved capture shows a live shutter, w
   expect(mockedQueue.releaseHold).toHaveBeenCalledWith("shot-1");
   expect(mockedWorker.drainOnce).toHaveBeenCalled();
 });
+
+// C1 (review fix): the reset above used to clear `busy` unconditionally,
+// which is also the only thing stopping a second `handleShutter` while the
+// first capture is still compressing/enqueuing. A refocus landing mid-shot
+// would re-enable the shutter, letting a second concurrent capture start —
+// whichever one's `setPendingShot` landed last silently stranded the
+// other's record `"held"` in the queue, with no UI referring to it. Fixed
+// by skipping the whole reset while `busy` is true. `captureToQueue` is
+// held open with a deferred promise here to put the screen genuinely
+// mid-capture (not just "about to be") when the simulated refocus lands.
+test("a refocus mid-capture does not clear busy, so it cannot let a second capture start and orphan the first's held record", async () => {
+  let resolveCapture!: (value: queue.QueueRecord) => void;
+  mockedCapture.captureToQueue.mockReturnValue(
+    new Promise<queue.QueueRecord>((resolve) => {
+      resolveCapture = resolve;
+    }) as never,
+  );
+  renderScreen();
+
+  const shutter = await screen.findByLabelText("Fotoğraf çek");
+  fireEvent.press(shutter);
+  await waitFor(() => expect(mockedCapture.captureToQueue).toHaveBeenCalledTimes(1));
+
+  // Still mid-capture: simulate the screen regaining focus (e.g. a quick
+  // tab switch and back) before the first shot has resolved.
+  await act(async () => {
+    mockFocusEffect.current();
+  });
+
+  // The reset must not have run: nothing to release yet (pendingShot was
+  // null when the effect fired), so no stray `releaseHold`/`drainOnce`.
+  expect(mockedQueue.releaseHold).not.toHaveBeenCalled();
+  expect(mockedWorker.drainOnce).not.toHaveBeenCalled();
+
+  // A second shutter press, while the first capture is still in flight,
+  // must not start a second one — `busy` must still be true.
+  fireEvent.press(screen.getByLabelText("Fotoğraf çek"));
+  expect(mockedCapture.captureToQueue).toHaveBeenCalledTimes(1);
+
+  // Let the first (only) capture resolve.
+  await act(async () => {
+    resolveCapture(record({ id: "shot-1" }));
+  });
+
+  // Exactly one capture ever happened, and its record reached the
+  // confirmation screen — not stranded `"held"` with nothing showing it.
+  expect(mockedCapture.captureToQueue).toHaveBeenCalledTimes(1);
+  expect(await screen.findByLabelText("Bitti")).toBeOnTheScreen();
+  expect(mockedQueue.releaseHold).not.toHaveBeenCalled();
+});
+
+// I1 (review fix): the same unconditional reset could also land mid-`Sil`
+// (`handleDiscard`), clearing `pendingShot` out from under it — `Sil`'s
+// own outcome-branches (already-uploaded / in-progress / failed) set
+// `discardNotice` on what they assume is still the current confirmation,
+// so cutting away to the live camera mid-call would leave that notice set
+// on a branch nothing renders again. Same fix, same guard: verify it holds
+// for this path too.
+test("a refocus mid-Sil does not cut away before the outcome notice can render", async () => {
+  mockedCapture.captureToQueue.mockResolvedValue(record({ id: "shot-1" }));
+  let resolveDiscard!: (value: queue.DiscardOutcome) => void;
+  mockedQueue.discardIfSafe.mockReturnValue(
+    new Promise<queue.DiscardOutcome>((resolve) => {
+      resolveDiscard = resolve;
+    }),
+  );
+  renderScreen();
+
+  await pressShutter();
+  fireEvent.press(screen.getByLabelText("Sil"));
+  await waitFor(() => expect(mockedQueue.discardIfSafe).toHaveBeenCalledWith("shot-1"));
+
+  // Still mid-discard: simulate a refocus before the call resolves.
+  await act(async () => {
+    mockFocusEffect.current();
+  });
+
+  // Not reset away — the confirmation (and its "Sil" outcome, once it
+  // lands) is still the live screen.
+  expect(screen.getByLabelText("Bitti")).toBeOnTheScreen();
+  expect(mockedQueue.releaseHold).not.toHaveBeenCalled();
+
+  await act(async () => {
+    resolveDiscard("already-uploaded");
+  });
+
+  // The outcome notice actually renders — proof the reset didn't cut away
+  // from underneath `handleDiscard` before it could show it.
+  expect(await screen.findByText("Bu fiş zaten gönderildi.")).toBeOnTheScreen();
+});

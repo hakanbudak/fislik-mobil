@@ -15,6 +15,20 @@ import { tokens } from "@/src/theme/tokens";
 import { text } from "@/src/theme/typography";
 
 /**
+ * Releases a held record and drains the queue — the shared tail end of
+ * every way of keeping a confirmed shot: "Bir tane daha çek", "Bitti", the
+ * confirmation screen's own close button (all three via
+ * `resolvePendingShot` below), and the focus-effect reset's own resolution
+ * of a shot left over from a previous, finished visit. `releaseHold` is a
+ * no-op if the record is somehow already past `"held"` (e.g. a duplicate
+ * call), so this is safe to call more than once for the same shot.
+ */
+async function releaseAndDrain(record: QueueRecord, onUploaded: UploadedHandler): Promise<void> {
+  await releaseHold(record.id);
+  void drainOnce(onUploaded);
+}
+
+/**
  * A capture is confirmed with the receipt itself, not a counter: taking a
  * photo shows it full-screen with "Bir tane daha çek" / "Sil" / "Bitti", so
  * the user sees the shot succeeded instead of guessing from a digit in the
@@ -89,12 +103,18 @@ export function CaptureScreen({
     invalidateAfterUpload(queryClient, receipt, requestedPeriod, uploadedClientId);
 
   // Kept current every render so the focus effect below (memoized with an
-  // empty dependency array — see its own comment) never closes over a stale
-  // `pendingShot`/`onUploaded` from the render it first mounted in.
+  // empty dependency array — see its own comment) never closes over stale
+  // values from the render it first mounted in.
   const pendingShotRef = useRef<QueueRecord | null>(null);
   pendingShotRef.current = pendingShot;
   const onUploadedRef = useRef(onUploaded);
   onUploadedRef.current = onUploaded;
+  // `busy` is the guard `handleShutter`/`handleLibrary`/`handleDocument`/
+  // `handleAnotherShot`/`handleFinishConfirm`/`handleDiscard` all use
+  // against a second concurrent call — see the focus effect below for why
+  // it doubles as the "is a genuine operation in flight right now" signal.
+  const busyRef = useRef(false);
+  busyRef.current = busy;
 
   /**
    * `kamera` is a flat `Tabs.Screen` (`app/(client)/_layout.tsx`), so this
@@ -115,22 +135,43 @@ export function CaptureScreen({
    * keeps it out of every upload drain until the confirmation resolves it —
    * silently dropping it here would silently lose a receipt the user
    * already took, which is worse than the bug being fixed. So a stale
-   * `pendingShot` is resolved exactly like "Bitti" would have: release the
-   * hold, then drain. This mirrors `worker.ts`'s `resetStrandedRecords`,
-   * which resolves an app-kill-stranded `"held"` record the same way, for
-   * the same reason.
+   * `pendingShot` is resolved exactly like "Bitti" would have, via the same
+   * `releaseAndDrain` the confirmation buttons use.
+   *
+   * Critical distinction this reset must make: "this screen is being
+   * revisited and holds stale state left over from a finished visit" vs.
+   * "an operation started in THIS visit is still running." Only the first
+   * may be reset. `busy` is true only while a real async handler above is
+   * actually in flight, and every one of those handlers already updates
+   * `pendingShot`/`shots`/`discardNotice` correctly once it settles — so if
+   * a focus event lands while `busy` is true, the reset is skipped
+   * entirely rather than touching any state. Getting this wrong was a real
+   * bug caught in review: unconditionally clearing `busy` here let a
+   * refocus mid-`handleShutter` re-enable the shutter while the first
+   * capture was still compressing, so a second press could start a second
+   * concurrent capture — whichever one's `setPendingShot` landed last would
+   * silently strand the other's record `"held"` in the queue, invisible to
+   * every drain until a cold start's `resetStrandedRecords` eventually
+   * caught it. Skipping the whole reset while `busy` avoids that (the
+   * in-flight handler's own `finally` clears `busy` when it's actually
+   * done, and this effect runs again on the next real focus) and,
+   * separately, keeps a refocus mid-`handleDiscard` from clearing
+   * `pendingShot` out from under it — `handleDiscard` sets `discardNotice`
+   * on a still-current `pendingShot`, so cutting away to the live camera
+   * mid-call would leave that notice set on a branch nothing renders again.
    */
   useFocusEffect(
     useCallback(() => {
+      if (busyRef.current) return;
+
       const stale = pendingShotRef.current;
       if (stale) {
-        void releaseHold(stale.id).then(() => drainOnce(onUploadedRef.current));
+        void releaseAndDrain(stale, onUploadedRef.current);
       }
       setShots([]);
       setPendingShot(null);
       setDiscardNotice(null);
       setBurst(false);
-      setBusy(false);
     }, []),
   );
 
@@ -200,13 +241,12 @@ export function CaptureScreen({
   // Shared by "Bir tane daha çek", "Bitti" and the confirmation screen's own
   // close button — every way of leaving the confirmation screen other than
   // "Sil" means the user is keeping the shot, so all three release it the
-  // same way. `releaseHold` is a no-op if the record is somehow already
-  // past "held" (e.g. a duplicate call), so this is safe to call more than
-  // once for the same shot.
+  // same way via `releaseAndDrain` above (which also documents the fourth
+  // caller: the focus effect's own resolution of a shot stale from a
+  // previous visit).
   async function resolvePendingShot() {
     if (!pendingShot) return;
-    await releaseHold(pendingShot.id);
-    void drainOnce(onUploaded);
+    await releaseAndDrain(pendingShot, onUploaded);
   }
 
   async function handleAnotherShot() {
