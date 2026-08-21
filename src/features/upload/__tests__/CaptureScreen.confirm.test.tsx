@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { forwardRef, useImperativeHandle } from "react";
 import { CaptureScreen } from "../CaptureScreen";
 import * as capture from "@/src/upload/capture";
@@ -28,6 +28,19 @@ jest.mock("@/src/upload/queue", () => ({
   releaseHold: jest.fn(),
 }));
 jest.mock("@/src/upload/worker", () => ({ drainOnce: jest.fn() }));
+// The real `useFocusEffect` needs a navigation tree this isolated render
+// doesn't provide ("Couldn't find a navigation object"). This stand-in runs
+// the effect once on mount (as CaptureScreen.test.tsx's identical mock
+// does) AND stashes the latest effect callback in `mockFocusEffect` so a
+// test can invoke it a second time to simulate the screen regaining focus
+// without a real navigator — see the "re-entering the camera" test below.
+const mockFocusEffect = { current: (): void => undefined };
+jest.mock("expo-router", () => ({
+  useFocusEffect: (effect: () => void) => {
+    mockFocusEffect.current = effect;
+    require("react").useEffect(effect, []);
+  },
+}));
 
 const mockTakePictureAsync = jest.fn();
 jest.mock("expo-camera", () => {
@@ -265,4 +278,35 @@ test("Sil does not release the hold", async () => {
 
   await waitFor(() => expect(mockedQueue.discardIfSafe).toHaveBeenCalledWith("shot-1"));
   expect(mockedQueue.releaseHold).not.toHaveBeenCalled();
+});
+
+// `kamera` is a flat `Tabs.Screen` (`app/(client)/_layout.tsx`), so
+// CaptureScreen never unmounts between visits — leaving the confirmation
+// screen up (e.g. by switching tabs instead of tapping "Sil"/"Bir tane daha
+// çek"/"Bitti") and coming back used to show the OLD shot's confirmation
+// instead of a live shutter. `mockFocusEffect.current()` simulates exactly
+// that: the screen regaining focus, without a real navigator.
+test("re-entering the camera after an unresolved capture shows a live shutter, with the held record resolved rather than orphaned", async () => {
+  mockedCapture.captureToQueue.mockResolvedValue(record({ id: "shot-1" }));
+  mockedQueue.releaseHold.mockResolvedValue(undefined);
+  renderScreen();
+
+  await pressShutter();
+  expect(screen.getByLabelText("Bitti")).toBeOnTheScreen();
+
+  await act(async () => {
+    mockFocusEffect.current();
+  });
+
+  // Live shutter, not the previous shot's confirmation.
+  expect(await screen.findByLabelText("Fotoğraf çek")).toBeOnTheScreen();
+  expect(screen.queryByLabelText("Bitti")).toBeNull();
+
+  // Asserted against the queue, not just the UI: the held record is
+  // resolved exactly like "Bitti" would have — released, then drained —
+  // never silently discarded. A held record is invisible to every drain
+  // until `releaseHold` runs (queue.ts's `enqueue`), so skipping this would
+  // strand the receipt unuploaded forever.
+  expect(mockedQueue.releaseHold).toHaveBeenCalledWith("shot-1");
+  expect(mockedWorker.drainOnce).toHaveBeenCalled();
 });

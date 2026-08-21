@@ -33,6 +33,12 @@ jest.mock("expo-image-manipulator", () => ({
 jest.mock("expo-image-picker", () => ({
   launchImageLibraryAsync: jest.fn(),
 }));
+// See CaptureScreen.test.tsx's identical mock for why this is needed: the
+// real `useFocusEffect` requires a navigation tree this isolated render
+// doesn't provide.
+jest.mock("expo-router", () => ({
+  useFocusEffect: (effect: () => void) => require("react").useEffect(effect, []),
+}));
 jest.mock("expo-file-system", () => {
   let dirExists = false;
   class MockDirectory {

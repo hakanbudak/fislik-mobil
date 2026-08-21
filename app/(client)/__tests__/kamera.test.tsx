@@ -4,7 +4,14 @@ import { Linking } from "react-native";
 import KameraScreen from "../kamera";
 import { createTestQueryClient } from "@/src/test/queryClient";
 
-jest.mock("expo-router", () => ({ router: { back: jest.fn(), push: jest.fn() } }));
+// `useFocusEffect` is CaptureScreen's per-visit-state reset (see its
+// docstring); the real one needs a navigation tree this isolated render
+// doesn't have, so it's stood in with a plain mount-only effect, same as
+// CaptureScreen's own test suites.
+jest.mock("expo-router", () => ({
+  router: { back: jest.fn(), push: jest.fn() },
+  useFocusEffect: (effect: () => void) => require("react").useEffect(effect, []),
+}));
 // KameraScreen imports src/upload/capture.ts, which pulls in the queue
 // module and its real AsyncStorage import — give it the library's own jest
 // mock so that load doesn't hit a native module (see uploader.test.ts).

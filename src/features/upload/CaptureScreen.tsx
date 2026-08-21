@@ -1,7 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { useFocusEffect } from "expo-router";
 import { Images, Paperclip, X } from "lucide-react-native";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { captureToQueue, pickDocument, pickFromLibrary } from "@/src/upload/capture";
 import { invalidateAfterUpload } from "@/src/upload/invalidateAfterUpload";
@@ -86,6 +87,52 @@ export function CaptureScreen({
   // Same handler `app/_layout.tsx` wires into `startWorker`.
   const onUploaded: UploadedHandler = (receipt, requestedPeriod, uploadedClientId) =>
     invalidateAfterUpload(queryClient, receipt, requestedPeriod, uploadedClientId);
+
+  // Kept current every render so the focus effect below (memoized with an
+  // empty dependency array — see its own comment) never closes over a stale
+  // `pendingShot`/`onUploaded` from the render it first mounted in.
+  const pendingShotRef = useRef<QueueRecord | null>(null);
+  pendingShotRef.current = pendingShot;
+  const onUploadedRef = useRef(onUploaded);
+  onUploadedRef.current = onUploaded;
+
+  /**
+   * `kamera` is a flat `Tabs.Screen` (`app/(client)/_layout.tsx`), so this
+   * component is a single persistent instance that never unmounts between
+   * visits — the same class of defect fixed structurally for the
+   * receipt-detail screens. Re-opening the camera after leaving mid-capture
+   * (e.g. switching tabs instead of tapping "Sil"/"Bir tane daha çek"/
+   * "Bitti") would otherwise show the OLD shot's confirmation screen
+   * instead of a live shutter, because `pendingShot`/`shots`/`burst` all
+   * survive the tab switch. This resets that per-visit state on every
+   * focus, the same defence-in-depth the `ExtractionEditor` fix used
+   * (the component protects itself rather than relying on the router to
+   * remount it) — and also runs harmlessly on first mount, when there is
+   * nothing to reset.
+   *
+   * A leftover `pendingShot` must not simply be discarded: a single-shot
+   * capture is enqueued with `hold: true` (`queue.ts`'s `enqueue`), which
+   * keeps it out of every upload drain until the confirmation resolves it —
+   * silently dropping it here would silently lose a receipt the user
+   * already took, which is worse than the bug being fixed. So a stale
+   * `pendingShot` is resolved exactly like "Bitti" would have: release the
+   * hold, then drain. This mirrors `worker.ts`'s `resetStrandedRecords`,
+   * which resolves an app-kill-stranded `"held"` record the same way, for
+   * the same reason.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      const stale = pendingShotRef.current;
+      if (stale) {
+        void releaseHold(stale.id).then(() => drainOnce(onUploadedRef.current));
+      }
+      setShots([]);
+      setPendingShot(null);
+      setDiscardNotice(null);
+      setBurst(false);
+      setBusy(false);
+    }, []),
+  );
 
   if (!permission) return null;
 

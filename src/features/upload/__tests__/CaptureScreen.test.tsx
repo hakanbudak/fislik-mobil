@@ -23,6 +23,15 @@ jest.mock("expo-camera", () => ({
   CameraView: () => null,
   useCameraPermissions: () => [{ granted: true, canAskAgain: true }, jest.fn()],
 }));
+// `CaptureScreen` now calls `useFocusEffect` (the per-visit-state reset —
+// see CaptureScreen.tsx's docstring) which, for real, needs a navigation
+// tree this isolated render doesn't have ("Couldn't find a navigation
+// object"). Standing in for it with a plain mount-only effect is enough for
+// this suite, which never exercises a re-focus — that's covered by
+// CaptureScreen.confirm.test.tsx instead.
+jest.mock("expo-router", () => ({
+  useFocusEffect: (effect: () => void) => require("react").useEffect(effect, []),
+}));
 
 const mockedCapture = capture as jest.Mocked<typeof capture>;
 

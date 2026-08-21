@@ -12,9 +12,14 @@ jest.mock("@react-native-async-storage/async-storage", () =>
   require("@react-native-async-storage/async-storage/jest/async-storage-mock"),
 );
 jest.mock("@/src/upload/capture");
+// `useFocusEffect` is CaptureScreen's per-visit-state reset (see its
+// docstring); the real one needs a navigation tree this isolated render
+// doesn't have, so it's stood in with a plain mount-only effect, same as
+// CaptureScreen's own test suites.
 jest.mock("expo-router", () => ({
   router: { back: jest.fn() },
   useLocalSearchParams: jest.fn(),
+  useFocusEffect: (effect: () => void) => require("react").useEffect(effect, []),
 }));
 jest.mock("expo-camera", () => ({
   CameraView: () => null,
