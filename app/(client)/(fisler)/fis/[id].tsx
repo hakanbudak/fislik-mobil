@@ -73,6 +73,13 @@ export default function ReceiptDetailScreen() {
     queryKey: queryKeys.receipts(period),
     queryFn: () => listReceipts(period),
     retry: false,
+    // Poll while THIS receipt is still being analyzed so the "Analiz
+    // ediliyor…" state resolves on its own without navigating away and back.
+    // Scoped to `id`, not "any receipt", because this screen only cares
+    // about one receipt — mirrors
+    // fislik-web/src/pages/ReceiptDetailPage.tsx's fallbackQuery.
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((r) => r.id === id && r.extraction?.status === "pending") ? 5000 : false,
   });
   const receipt = receiptsQuery.data?.find((r) => r.id === id);
 

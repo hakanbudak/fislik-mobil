@@ -41,6 +41,11 @@ export default function HomeScreen() {
     queryKey: queryKeys.receipts(period),
     queryFn: () => listReceipts(period),
     retry: false,
+    // Poll while any receipt is still being analyzed so extracted fields
+    // appear on their own; stops as soon as nothing is pending. Mirrors
+    // fislik-web/src/pages/ClientHomePage.tsx's receiptsQuery.
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((r) => r.extraction?.status === "pending") ? 5000 : false,
   });
 
   const summaryQuery = useQuery({

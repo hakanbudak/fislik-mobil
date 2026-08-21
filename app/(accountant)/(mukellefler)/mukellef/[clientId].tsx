@@ -125,6 +125,11 @@ export default function ClientMonthScreen() {
     queryKey: queryKeys.clientReceipts(clientId, period),
     queryFn: () => clientReceipts(clientId, period),
     retry: false,
+    // Poll while any receipt is still being analyzed so extracted fields
+    // appear on their own; stops as soon as nothing is pending. Mirrors
+    // fislik-web/src/pages/AccountantMonthPage.tsx's receiptsQuery.
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((r) => r.extraction?.status === "pending") ? 5000 : false,
   });
 
   // Not-yet-uploaded captures queued on THIS client's behalf (Task 24) —
